@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nextgen-datahive"
+version = "0.1.0"
+description = "Local-first data platform: connector registry, asset catalog, SQL explorer, glossary and data quality"
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pymongo>=4.9",
+    "python-multipart>=0.0.9",
+    "psycopg[binary]>=3.2",
+    "eval_type_backport>=0.2",
+    "openpyxl>=3.1",
+    "cryptography>=43.0",
+    "snowflake-connector-python>=3.12",
+    "boto3>=1.35",
+    "google-auth>=2.35",
+]
+
+[project.optional-dependencies]
+# Install only the on-prem drivers you actually connect to.
+mysql = ["pymysql>=1.1"]
+sqlserver = ["pymssql>=2.2", "pyodbc>=5.1"]
+oracle = ["oracledb>=2.4"]
+db2 = ["ibm_db>=3.2"]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+datahive-api = "api.__main__:main"
+
+[tool.setuptools]
+packages = [
+    "api",
+    "api.routers",
+    "api.repositories",
+    "api.services",
+    "core",
+    "core.validators",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = ["web", "storage", "resources"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",    # line length is handled by the formatter
+    "B008",    # FastAPI depends on callables in argument defaults
+    "UP006",   # keep builtin generics quoted for the 3.9 runtime
+    "UP007",   # ditto for X | Y unions
+    "UP035",   # typing imports still needed on 3.9
+    "RUF001",  # ×, −, – are deliberate in strings rendered in the UI
+    # The SIM rules below only propose cosmetic restructuring (contextlib.suppress
+    # for driver cleanup, ternaries, flattened ifs). Left off so the baseline stays
+    # green and real defects stand out.
+    "SIM102",
+    "SIM103",
+    "SIM105",
+    "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Re-exported for the package's public surface.
+"core/validators/__init__.py" = ["F401"]
+"api/routers/__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+markers = [
+    "integration: needs a live MongoDB or PostgreSQL to run",
+]

@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Build / tooling artefacts
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Runtime uploads — keep the directories, ignore their contents.
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/glossary/*
+!storage/glossary/.gitkeep

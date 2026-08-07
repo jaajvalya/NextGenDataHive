@@ -1,0 +1,8 @@
+# Dependencies live in pyproject.toml; this keeps `pip install -r requirements.txt` working.
+# Editable install so `api` and `core` are importable from anywhere.
+-e .
+
+# Development extras (linter + test runner):
+#   pip install -e ".[dev]"
+# On-prem database drivers, install only what you connect to:
+#   pip install -e ".[mysql]" ".[sqlserver]" ".[oracle]" ".[db2]"

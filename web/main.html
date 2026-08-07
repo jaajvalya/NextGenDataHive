@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ACL DataHive</title>
+<script>
+/* file:// blocks fetch to localhost — bounce to the HTTP UI when the API is up. */
+(function () {
+  try {
+    if (location.protocol !== "file:") return;
+    var target = "http://127.0.0.1:5055/" + (location.hash || "");
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      if (ctrl) ctrl.abort();
+    }, 1200);
+    fetch("http://127.0.0.1:5055/health", {
+      cache: "no-store",
+      signal: ctrl ? ctrl.signal : undefined,
+    })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (res && res.ok) location.replace(target);
+      })
+      .catch(function () {
+        clearTimeout(timer);
+      });
+  } catch (_err) {}
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/main.css" />
+</head>
+<body>
+
+<!-- ===== Top bar ===== -->
+<header class="topbar">
+  <div class="brand-logo" title="ACL Digital">
+    <img class="brand-logo-img" src="images/ACL-Logo.webp" alt="ACL Digital — an ALTEN group company" />
+    <span class="brand-wordmark" aria-label="DataHive"><span class="data">Data</span><span class="hive">Hive</span></span>
+  </div>
+  <div class="spacer"></div>
+  <div class="userchip" id="userChip">
+    <span class="avatar" id="userAv">A</span>
+    <span class="nm" id="userNm">Admin</span>
+    <span>▾</span>
+  </div>
+</header>
+
+<div class="apibanner hidden" id="apiBanner" role="status"></div>
+<div class="pgbanner hidden" id="pgBanner" role="status">
+  PostgreSQL is not reachable — asset search uses demo data only. Run connector API and check POSTGRES_* in <code>.env</code>.
+</div>
+
+<div class="shell">
+  <!-- ===== Left rail ===== -->
+  <nav class="rail" aria-label="Primary">
+    <div class="grp">
+      <a href="#" class="active" data-view="assets" aria-current="page"><span class="ic" aria-hidden="true"><i data-lucide="layers"></i></span>Assets</a>
+      <a href="#" data-view="connectors"><span class="ic" aria-hidden="true"><i data-lucide="unplug"></i></span>Connectors</a>
+      <a href="#" data-view="etl"><span class="ic" aria-hidden="true"><i data-lucide="arrow-left-right"></i></span>ETL/ELT</a>
+      <a href="#" data-view="reporting"><span class="ic" aria-hidden="true"><i data-lucide="sparkles"></i></span>Insights</a>
+    </div>
+    <div class="grp" style="margin-top:14px">
+      <a href="#" data-view="glossary"><span class="ic" aria-hidden="true"><i data-lucide="book-text"></i></span>Glossary</a>
+      <a href="#" data-view="governance"><span class="ic" aria-hidden="true"><i data-lucide="scale"></i></span>Governance</a>
+      <a href="#" data-view="admin"><span class="ic" aria-hidden="true"><i data-lucide="shield-check"></i></span>Admin</a>
+      <a href="#" data-view="insights"><span class="ic" aria-hidden="true"><i data-lucide="chart-column"></i></span>Reporting</a>
+    </div>
+    <div class="grp bottom">
+      <a href="#"><span class="ic" aria-hidden="true"><i data-lucide="headset"></i></span>Support</a>
+      <a href="#"><span class="ic" aria-hidden="true"><i data-lucide="file-text"></i></span>Docs</a>
+    </div>
+  </nav>
+
+  <!-- ===== Body ===== -->
+  <main class="body">
+    <div id="view-assets" class="assets-pane">
+      <section class="acl-hero with-search" aria-label="Assets">
+        <div class="acl-hero-copy">
+          <h1 id="assetsGreeting">Good day, Admin!</h1>
+          <p>Search and explore governed data assets across your connectors.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+        <div class="searchwrap">
+          <div class="searchbar">
+            <span class="mk">DataHive</span>
+            <input id="assetSearch" type="search" placeholder="Search all your assets" autocomplete="off"
+                   aria-label="Search all your assets" />
+          </div>
+          <div id="assetSearchResults" class="searchresults hidden"></div>
+        </div>
+        <a class="discover" href="#" id="assetDiscover">Discover all assets →</a>
+      </section>
+      <div class="assets-grid">
+        <div class="asset-summary" id="assetSummary" aria-label="Data catalog summary">
+          <div class="asset-summary-item">
+            <span class="lbl">Connectors</span>
+            <span class="val" id="assetSummaryConnectors">—</span>
+          </div>
+          <div class="asset-summary-item">
+            <span class="lbl">Number of schemas</span>
+            <span class="val" id="assetSummarySchemas">—</span>
+          </div>
+          <div class="asset-summary-item">
+            <span class="lbl">Number of views</span>
+            <span class="val" id="assetSummaryViews">—</span>
+          </div>
+          <div class="asset-summary-item">
+            <span class="lbl">Number of tables</span>
+            <span class="val" id="assetSummaryTables">—</span>
+          </div>
+        </div>
+        <section class="card">
+          <div class="hd">
+            <h2>Know your data assets!</h2>
+          </div>
+          <div class="bd">
+            <div class="asset-picker">
+              <div class="asset-picker-block connector-block">
+                <label for="assetConnectorSelect">Connector</label>
+                <select id="assetConnectorSelect">
+                  <option value="all">All connectors</option>
+                </select>
+                <p class="asset-conn-help" id="assetConnectorHelp">
+                  Showing assets you can access across all connectors.
+                </p>
+              </div>
+              <div class="asset-picker-block">
+                <label for="assetSchemaSelect">Schema / namespace</label>
+                <select id="assetSchemaSelect">
+                  <option value="">Select schema…</option>
+                </select>
+              </div>
+              <div class="asset-picker-block">
+                <label for="assetTableSelect">Table / object</label>
+                <select id="assetTableSelect" disabled>
+                  <option value="">Select a schema first…</option>
+                </select>
+                <div id="assetTableMeta" class="asset-table-meta hidden" aria-live="polite"></div>
+              </div>
+            </div>
+            <div class="asset-browser" id="assetBrowser" aria-label="Assets for selected connector">
+              <div class="ab-empty">Loading assets…</div>
+            </div>
+            <div id="assetStructureWrap" class="asset-structure">
+              <div class="state">Pick a connector, then a schema and table — or choose an asset from the list.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="view-sql" class="sql-pane hidden">
+      <section class="acl-hero" aria-label="Reporting">
+        <div class="acl-hero-copy">
+          <h1>Reporting</h1>
+          <p>Run governed SQL against your catalog — explore schemas, tables, and query results in one workbench.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+      <div class="sql-workbench">
+        <aside class="sql-tree-panel" aria-label="Database catalog">
+          <div class="sql-tree-hd">
+            <span>Catalog</span>
+            <select id="sqlConnectorSelect" class="sql-connector-select" aria-label="Reporting connector" title="Which connection Reporting uses for catalog and queries">
+              <option value="all">All connectors</option>
+            </select>
+          </div>
+          <div class="sql-tree-scroll">
+            <ul id="sqlCatalogTree" class="sql-catalog-tree"></ul>
+          </div>
+        </aside>
+        <div class="sql-main-panel">
+          <section class="sql-editor-section" aria-label="Query editor">
+            <div class="sql-toolbar">
+              <button type="button" class="btn btn-primary" id="sqlRunBtn">Run query</button>
+              <button type="button" class="btn btn-ghost" id="sqlDownloadBtn">Download CSV</button>
+              <span class="sql-status" id="sqlStatus" aria-live="polite"></span>
+            </div>
+            <textarea id="sqlEditor" class="sql-editor" spellcheck="false" placeholder="SELECT * FROM silver.my_table LIMIT 100;">SELECT 1 AS ok;</textarea>
+          </section>
+          <section class="sql-results-section" aria-label="Query results">
+            <div class="sql-results-hd"><h2>Results</h2></div>
+            <div id="sqlResultsWrap"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-connectors" class="hidden">
+    <div class="stage">
+      <section class="acl-hero" aria-label="Connectors">
+        <div class="acl-hero-copy">
+          <h1>Connectors</h1>
+          <p>Connect cloud and database platforms, validate access, and manage your data estate endpoints.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+      <section class="instr-card">
+        <div class="instr-hd"><h2>Pre-requisites &amp; Configuration Instructions</h2></div>
+        <div class="instr-bd">
+          <div class="prereq-item">To set up the connector, please provide your API endpoint, authentication credentials, and network requirements (GCP IP whitelisting, private connectivity, or mTLS). We also need the data scope-including schema, sample payloads, and sync mechanisms-along with data governance guidelines (PII/PHI handling, compliance requirements, and a technical point of contact).</div>
+        </div>
+      </section>
+
+      <div class="cloud-grid" id="cloudGrid" role="group" aria-label="Cloud providers"></div>
+
+      <section class="recent-conn" id="recentConnections" aria-labelledby="recentConnTitle">
+        <div class="recent-conn-hd"><h2 id="recentConnTitle">All Connections</h2></div>
+        <div class="recent-conn-bd" id="recentConnectionsBody">
+          <div class="recent-empty">Loading connections from MongoDB…</div>
+        </div>
+      </section>
+
+      <section class="status hidden" id="connStatus" aria-live="polite">
+        <h2 id="statusTitle">Connection saved</h2>
+        <div class="meta" id="statusMeta"></div>
+        <div class="pill pending" id="statusPill">Ready to fetch</div>
+      </section>
+    </div>
+    </div>
+
+    <div id="view-etl" class="etl-pane hidden">
+      <section class="acl-hero" aria-label="ETL / ELT">
+        <div class="acl-hero-copy">
+          <h1>ETL / ELT</h1>
+          <p>Select source and destination, choose SQL / Python / PySpark, then generate a transformation script.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <section class="etl-card" aria-labelledby="etlFormTitle">
+        <div class="etl-hd"><h2 id="etlFormTitle">New pipeline</h2></div>
+        <div class="etl-bd">
+          <form id="etlForm" novalidate>
+            <div class="field">
+              <label for="etl_name">Pipeline name <span class="req">*</span></label>
+              <input id="etl_name" name="name" required maxlength="128" placeholder="e.g. Snowflake → Postgres nightly sync" />
+            </div>
+
+            <div class="etl-endpoints">
+              <div class="etl-endpoint" aria-label="Source details">
+                <p class="ep-label">Source</p>
+                <div class="field">
+                  <label for="etl_source_type">Source connector <span class="req">*</span></label>
+                  <select id="etl_source_type" required>
+                    <option value="">Select source connector…</option>
+                  </select>
+                </div>
+                <div class="field" id="etl_source_conn_wrap">
+                  <label for="etl_source_conn">Source connection <span class="req">*</span></label>
+                  <select id="etl_source_conn" required disabled>
+                    <option value="">Select a source connector first…</option>
+                  </select>
+                  <div class="help">Saved connections for the selected source connector.</div>
+                </div>
+                <div class="field" id="etl_source_kind_wrap">
+                  <label for="etl_source_kind">Source kind</label>
+                  <select id="etl_source_kind">
+                    <option value="object">Table / object / URI</option>
+                    <option value="local_file">Local file upload</option>
+                    <option value="stage_file">Snowflake stage file</option>
+                  </select>
+                  <div class="help" id="etl_source_kind_help">Upload a local CSV/JSON/Parquet, point at a table/URI, or load from a Snowflake stage.</div>
+                </div>
+                <div class="field hidden" id="etl_local_upload_wrap">
+                  <label>Local file <span class="req">*</span></label>
+                  <div class="uploadzone" id="etlUploadDropzone" tabindex="0" role="button" aria-label="Upload local ETL source file">
+                    <img class="upimg" src="images/upload.png" alt="" width="64" height="64" />
+                    <div class="uptext">Click to upload or drag &amp; drop</div>
+                    <div class="uphint">CSV, Excel, JSON, or Parquet — up to 50 MB</div>
+                  </div>
+                  <input type="file" id="etlUploadFileInput" class="hidden" accept=".csv,.xlsx,.xls,.json,.parquet,.tsv,.txt,.jsonl,.ndjson" />
+                  <div id="etlUploadSelected" class="selectedfile hidden">
+                    <img class="sf-icon" src="images/upload.png" alt="" width="28" height="28" />
+                    <div class="sf-meta">
+                      <div class="sf-name" id="etlUploadSelectedName"></div>
+                      <div class="sf-size" id="etlUploadSelectedSize"></div>
+                    </div>
+                    <button type="button" class="icon-btn" id="etlUploadClearBtn" aria-label="Remove selected file">✕</button>
+                  </div>
+                  <div class="help">File is stored under <code>storage/uploads/</code> and used as the pipeline source.</div>
+                </div>
+                <div class="field hidden" id="etl_stage_wrap">
+                  <label for="etl_source_stage">Stage</label>
+                  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <select id="etl_source_stage" style="flex:1;min-width:180px" disabled>
+                      <option value="">Select Snowflake connection first…</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost" id="etlRefreshStageBtn" title="Reload stages and files">Refresh</button>
+                    <button type="button" class="btn btn-ghost" id="etlEnsureStageBtn" title="Only if the stage truly does not exist">Create if missing</button>
+                  </div>
+                  <div class="help" id="etl_stage_help">Uses SALES_DB.RAW.RAW_STAGE when the connector role has READ on the stage (schema USAGE alone is not enough).</div>
+                </div>
+                <div class="field hidden" id="etl_stage_file_wrap">
+                  <label for="etl_source_file">Stage file</label>
+                  <select id="etl_source_file" disabled>
+                    <option value="">Select a stage first…</option>
+                  </select>
+                  <div class="help">Files listed from the selected stage (CSV / JSON / Parquet). Nested JSON is flattened into tabular RAW columns.</div>
+                </div>
+                <div class="field" style="margin-bottom:0" id="etl_source_object_wrap">
+                  <label for="etl_source_object">Source object</label>
+                  <input id="etl_source_object" maxlength="512" placeholder="e.g. gs://bucket/folder/file.json or bronze.customers" />
+                  <div class="help" id="etl_source_object_help">For GCP files use gs://bucket/folder/file.json. Also supports schema.table, stage path, or other connector objects.</div>
+                </div>
+              </div>
+
+              <div class="etl-arrow" aria-hidden="true">→</div>
+
+              <div class="etl-endpoint" aria-label="Target details">
+                <p class="ep-label">Destination</p>
+                <div class="field">
+                  <label for="etl_target_type">Target connector <span class="req">*</span></label>
+                  <select id="etl_target_type" required>
+                    <option value="">Select target connector…</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="etl_target_conn">Target connection <span class="req">*</span></label>
+                  <select id="etl_target_conn" required disabled>
+                    <option value="">Select a target connector first…</option>
+                  </select>
+                  <div class="help">Saved connections for the selected target connector.</div>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label for="etl_target_object">Destination object</label>
+                  <input id="etl_target_object" maxlength="256" placeholder="e.g. SALES_DB.RAW.CUSTOMERS" />
+                  <div class="help">For stage loads, defaults to SALES_DB.RAW.&lt;FILE_TABLE&gt;.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="etl_language">Transformation language <span class="req">*</span></label>
+              <select id="etl_language" name="etl_language" required>
+                <option value="sql" selected>SQL</option>
+                <option value="python">Python</option>
+                <option value="pyspark">PySpark</option>
+              </select>
+              <div class="help" id="etl_language_help">Snowflake stage → COPY INTO. GCS gs://…json → flatten nested JSON to tabular (Python recommended). JSON/JSONL nested objects/arrays become columns.</div>
+            </div>
+
+            <div class="field">
+              <label for="etl_notes">Notes</label>
+              <input id="etl_notes" name="notes" maxlength="512" placeholder="Optional context for this pipeline" />
+            </div>
+
+            <div class="err hidden" id="etlFormError"></div>
+            <div class="etl-ok hidden" id="etlFormOk"></div>
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" id="etlResetBtn">Reset</button>
+              <button type="button" class="btn btn-primary" id="etlGenerateBtn">Generate script</button>
+              <button type="submit" class="btn btn-primary" id="etlSaveBtn">Save pipeline</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="etl-card" aria-labelledby="etlScriptTitle">
+        <div class="etl-hd">
+          <h2 id="etlScriptTitle">Transformation script</h2>
+        </div>
+        <div class="etl-bd">
+          <div class="etl-script-toolbar">
+            <span class="hint" id="etlScriptHint">Select source, destination, and language, then generate.</span>
+            <button type="button" class="btn btn-ghost" id="etlCopyScriptBtn">Copy</button>
+            <button type="button" class="btn btn-ghost" id="etlDownloadScriptBtn">Download</button>
+          </div>
+          <textarea id="etlScriptEditor" class="etl-script" spellcheck="false" placeholder="Generated transformation script will appear here…"></textarea>
+          <p class="etl-script-meta" id="etlScriptMeta"></p>
+        </div>
+      </section>
+
+      <section class="etl-card" aria-labelledby="etlListTitle">
+        <div class="etl-hd">
+          <h2 id="etlListTitle">Saved pipelines</h2>
+          <span class="count" id="etlPipelineCount" style="font-size:12px;font-weight:700;color:#8a93a3;background:var(--gray-100);border-radius:999px;padding:3px 10px">0</span>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="etlPipelinesBody"></div>
+        </div>
+      </section>
+    </div>
+
+    <div id="view-glossary" class="glossary-pane hidden">
+      <section class="acl-hero" aria-label="Glossary">
+        <div class="acl-hero-copy">
+          <h1>Glossary</h1>
+          <p>Define business metadata once and apply it to assets across AWS, Azure, GCP, Snowflake, Databricks, Postgres, and other connectors.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <div class="glossary-steps" aria-label="Glossary workflow">
+        <div class="glossary-step">
+          <div class="n">1</div>
+          <h3>Download template</h3>
+          <p>Get <code>glossary_template.xlsx</code> with samples for each major connector platform.</p>
+        </div>
+        <div class="glossary-step">
+          <div class="n">2</div>
+          <h3>Update offline</h3>
+          <p>Set <code>connection</code> to a saved Connectors display name (or platform). One row per column.</p>
+        </div>
+        <div class="glossary-step">
+          <div class="n">3</div>
+          <h3>Upload back</h3>
+          <p>Terms land in the shared glossary registry; Postgres and Snowflake also sync table/column comments in the source system.</p>
+        </div>
+      </div>
+
+      <section class="etl-card" aria-labelledby="glossaryTemplateTitle">
+        <div class="etl-hd">
+          <h2 id="glossaryTemplateTitle">Glossary template</h2>
+          <a class="btn btn-primary" id="glossaryDownloadBtn" href="#" role="button">Download template</a>
+        </div>
+        <div class="etl-bd">
+          <p class="lead" style="margin:0 0 8px">
+            Template file: <strong>glossary_template.xlsx</strong>
+          </p>
+          <p class="lead" style="margin:0">
+            <strong>Identifiers:</strong> connection, platform, database, schema, table, column &nbsp;·&nbsp;
+            <strong>Metadata:</strong> business_name, description, business_definition, classification,
+            sensitivity, source_system, owner, steward
+          </p>
+        </div>
+      </section>
+
+      <section class="etl-card" aria-labelledby="glossaryUploadTitle">
+        <div class="etl-hd"><h2 id="glossaryUploadTitle">Upload glossary</h2></div>
+        <div class="etl-bd">
+          <div class="field">
+            <label for="glossaryNotes">Notes</label>
+            <input id="glossaryNotes" maxlength="512" placeholder="Optional context for this upload (e.g. Q3 term refresh)" />
+          </div>
+          <div class="uploadzone" id="glossaryDropzone" tabindex="0" role="button" aria-label="Upload glossary file">
+            <img class="upimg" src="images/upload.png" alt="" width="64" height="64" />
+            <div class="uptext">Click to upload or drag &amp; drop</div>
+            <div class="uphint">Excel (.xlsx, .xls) or CSV — up to 10 MB</div>
+          </div>
+          <input type="file" id="glossaryFileInput" class="hidden" accept=".xlsx,.xls,.csv" />
+          <div id="glossarySelected" class="selectedfile hidden">
+            <img class="sf-icon" src="images/upload.png" alt="" width="28" height="28" />
+            <div class="sf-meta">
+              <div class="sf-name" id="glossarySelectedName"></div>
+              <div class="sf-size" id="glossarySelectedSize"></div>
+            </div>
+            <button type="button" class="btn btn-primary" id="glossaryUploadBtn">Upload</button>
+            <button type="button" class="icon-btn" id="glossaryClearBtn" aria-label="Remove selected file">✕</button>
+          </div>
+          <div class="err hidden" id="glossaryFormError" style="margin-top:12px"></div>
+          <div class="etl-ok hidden" id="glossaryFormOk" style="margin-top:12px"></div>
+        </div>
+      </section>
+
+      <section class="etl-card" aria-labelledby="glossaryListTitle">
+        <div class="etl-hd">
+          <h2 id="glossaryListTitle">Uploaded glossaries</h2>
+          <span class="count" id="glossaryCount" style="font-size:12px;font-weight:700;color:#8a93a3;background:var(--gray-100);border-radius:999px;padding:3px 10px">0</span>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="glossaryListBody"></div>
+        </div>
+      </section>
+
+      <section class="etl-card hidden" aria-labelledby="glossaryTermsTitle" hidden>
+        <div class="etl-hd">
+          <h2 id="glossaryTermsTitle">Registered terms</h2>
+          <span class="count" id="glossaryTermsCount" style="font-size:12px;font-weight:700;color:#8a93a3;background:var(--gray-100);border-radius:999px;padding:3px 10px">0</span>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="glossaryTermsBody"></div>
+        </div>
+      </section>
+    </div>
+
+    <div id="view-governance" class="gov-pane hidden">
+      <div id="govHome">
+        <section class="acl-hero" aria-label="Governance">
+          <div class="acl-hero-copy">
+            <h1>Governance</h1>
+            <p>Monitor quality, trace lineage, and track cloud spend across your data estate.</p>
+          </div>
+          <div class="acl-hero-mark" aria-hidden="true"></div>
+        </section>
+        <div class="gov-grid" role="list" aria-label="Governance areas">
+          <button type="button" class="gov-tile" role="listitem" data-gov="data-quality">
+            <span class="gic" aria-hidden="true"><i data-lucide="badge-check"></i></span>
+            <div class="gnm">Data Quality</div>
+            <p class="gdesc">Configure quality rules and monitor checks across data assets.</p>
+          </button>
+          <button type="button" class="gov-tile" role="listitem" data-gov="data-lineage">
+            <span class="gic" aria-hidden="true"><i data-lucide="git-branch"></i></span>
+            <div class="gnm">Data Lineage</div>
+            <p class="gdesc">Trace upstream and downstream dependencies for tables and pipelines.</p>
+          </button>
+          <button type="button" class="gov-tile" role="listitem" data-gov="data-modeling">
+            <span class="gic" aria-hidden="true"><i data-lucide="waypoints"></i></span>
+            <div class="gnm">Data Modeling</div>
+            <p class="gdesc">Design entities, relationships, and dimensional models for your data estate.</p>
+          </button>
+          <button type="button" class="gov-tile" role="listitem" data-gov="finops">
+            <span class="gic" aria-hidden="true"><i data-lucide="wallet"></i></span>
+            <div class="gnm">FinOps</div>
+            <p class="gdesc">Track storage and compute spend, budgets, and cost anomalies.</p>
+          </button>
+        </div>
+      </div>
+
+      <div id="govQuality" class="gov-dq hidden" aria-label="Data quality dashboard">
+        <div class="gov-dq-toolbar">
+          <button type="button" class="btn btn-ghost" id="govDqBackBtn">← Back</button>
+          <h2>Data Quality</h2>
+          <span class="hint">Select connector, layer / schema, and tables — then run basic quality checks</span>
+        </div>
+        <div class="gov-dq-filters" aria-label="Data quality scope">
+          <div class="field">
+            <label for="govDqConnector">Connector <span class="req">*</span></label>
+            <select id="govDqConnector">
+              <option value="">Select connector…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="govDqSchema">Layer / schema <span class="req">*</span></label>
+            <select id="govDqSchema" disabled>
+              <option value="">Select connector first…</option>
+            </select>
+          </div>
+          <div class="field" style="grid-column:span 2">
+            <label for="govDqTables">Tables <span class="req">*</span></label>
+            <select id="govDqTables" class="dq-tables" multiple disabled size="6"></select>
+            <div class="help">Hold Ctrl/Cmd to select multiple (max 12).</div>
+          </div>
+        </div>
+        <div class="gov-dq-actions">
+          <button type="button" class="btn btn-primary" id="govDqRunBtn" disabled>Run quality checks</button>
+          <span class="hint" id="govDqStatus"></span>
+        </div>
+        <div class="err hidden" id="govDqError"></div>
+
+        <div id="govDqResults" class="hidden">
+          <div class="gov-dq-dash">
+            <div class="gov-dq-scorecard">
+              <div class="label">Data quality score</div>
+              <div class="gov-dq-score" id="govDqScore">—</div>
+              <div class="gov-dq-grade" id="govDqGrade">—</div>
+              <div class="gov-dq-formula">
+                Weighted score
+                <code id="govDqFormula">DQ = 0.35×Completeness + 0.25×Uniqueness + 0.20×Validity + 0.10×Schema + 0.10×Volume</code>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div class="gov-dq-dims" id="govDqDims"></div>
+              <div class="gov-dq-issue-summary" id="govDqIssueSummary"></div>
+            </div>
+          </div>
+
+          <div class="gov-dq-panel" style="margin-top:4px">
+            <h3>Issues dashboard</h3>
+            <div class="gov-dq-issues" id="govDqIssues">
+              <div class="gov-dq-empty">No issues yet — run checks to populate the dashboard.</div>
+            </div>
+          </div>
+
+          <div class="gov-dq-panel">
+            <h3>Check results by table</h3>
+            <div class="gov-dq-table-wrap">
+              <table class="gov-dq-table" id="govDqChecksTable">
+                <thead>
+                  <tr>
+                    <th>Table</th>
+                    <th>Check</th>
+                    <th>Dimension</th>
+                    <th>Status</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody id="govDqChecksBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="gov-dq-panel">
+            <h3>Score calculation &amp; logic</h3>
+            <div class="gov-dq-logic" id="govDqLogic"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="govLineage" class="gov-lineage hidden" aria-label="Data lineage map">
+        <div class="gov-lineage-toolbar">
+          <button type="button" class="btn btn-ghost" id="govLineageBackBtn">← Back</button>
+          <h2>Data Lineage</h2>
+          <span class="hint">Choose a connector and layer / bucket / stage, then click a node to highlight paths</span>
+        </div>
+        <div class="gov-lineage-filters" aria-label="Lineage scope">
+          <div class="field">
+            <label for="govLineageConnector">Connector <span class="req">*</span></label>
+            <select id="govLineageConnector">
+              <option value="">Select connector…</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="govLineageScope" id="govLineageScopeLabel">Layer / bucket / stage <span class="req">*</span></label>
+            <select id="govLineageScope" disabled>
+              <option value="">Select connector first…</option>
+            </select>
+            <div class="help" id="govLineageScopeHelp">Scope adapts to the connector platform (layers, buckets, or stages).</div>
+          </div>
+        </div>
+        <div class="gov-lineage-legend" aria-hidden="true">
+          <span><i style="background:#3375B3"></i> Source</span>
+          <span><i style="background:#0056A7"></i> Bronze / Raw</span>
+          <span><i style="background:#046BD2"></i> Silver / Enriched</span>
+          <span><i style="background:#FF671F"></i> Gold</span>
+          <span><i style="background:#1FA971"></i> Consumption</span>
+        </div>
+        <div class="gov-lineage-canvas" id="govLineageCanvas">
+          <div class="gov-lineage-empty" id="govLineageEmpty">
+            Select a connector and a layer / bucket / stage to load the lineage map.
+          </div>
+          <svg class="gov-lineage-svg hidden" id="govLineageSvg" role="img" aria-label="Lineage map"></svg>
+        </div>
+        <div class="gov-lineage-detail" id="govLineageDetail">
+          <span class="muted">Select an asset on the map to inspect its lineage path.</span>
+        </div>
+      </div>
+
+      <div id="govModeling" class="gov-model hidden" aria-label="Data modeling wizard">
+        <div class="gov-model-toolbar">
+          <button type="button" class="btn btn-ghost" id="govModelBackBtn">← Back</button>
+          <h2>Data Modeling</h2>
+          <div class="gov-model-steps" aria-label="Modeling steps">
+            <span class="gov-model-step-pill active" data-model-step-pill="1">1 · Scope</span>
+            <span class="gov-model-step-pill" data-model-step-pill="2">2 · Proposal</span>
+            <span class="gov-model-step-pill" data-model-step-pill="3">3 · DDL</span>
+          </div>
+        </div>
+
+        <div class="gov-model-panel" id="govModelStep1">
+          <h3>Select modeling scope</h3>
+          <p class="lead">Choose the connector, database / layer, and schema to model.</p>
+          <div class="gov-model-grid">
+            <div class="field" style="margin:0">
+              <label for="govModelConnector">Connector <span class="req">*</span></label>
+              <select id="govModelConnector">
+                <option value="">Select connector…</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label for="govModelDatabase">Database / layer <span class="req">*</span></label>
+              <select id="govModelDatabase" disabled>
+                <option value="">Select connector first…</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label for="govModelSchema">Schema <span class="req">*</span></label>
+              <select id="govModelSchema" disabled>
+                <option value="">Select database / layer first…</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label for="govModelTargetSchema">Target model schema <span class="req">*</span></label>
+              <select id="govModelTargetSchema" disabled>
+                <option value="">Select target schema…</option>
+              </select>
+              <div class="help">Where dimensions, facts, and views will be created.</div>
+            </div>
+          </div>
+          <div class="err hidden" id="govModelError" style="margin-top:12px"></div>
+          <div class="gov-model-actions">
+            <button type="button" class="btn btn-primary" id="govModelProposeBtn">Propose data model</button>
+          </div>
+        </div>
+
+        <div class="gov-model-panel hidden" id="govModelStep2">
+          <h3>Proposed dimensional model</h3>
+          <p class="lead" id="govModelProposalLead">Review entities with primary keys, foreign keys, constraints, and typed columns before generating DDL.</p>
+          <div class="gov-model-summary" id="govModelSummary"></div>
+          <div id="govModelProposalList" class="gov-model-list"></div>
+          <div class="gov-model-actions">
+            <button type="button" class="btn btn-ghost" id="govModelBackToScopeBtn">← Scope</button>
+            <button type="button" class="btn btn-primary" id="govModelConfirmBtn">Confirm &amp; generate DDL + ingestion</button>
+          </div>
+        </div>
+
+        <div class="gov-model-panel hidden" id="govModelStep3">
+          <h3>DDL &amp; ingestion scripts</h3>
+          <p class="lead">Model DDL plus a separate ingestion script that loads source tables into the proposed dimensions and facts (with casts and key lookups).</p>
+          <div class="gov-model-actions" style="margin-top:0;margin-bottom:10px">
+            <button type="button" class="btn btn-ghost" id="govModelBackToProposalBtn">← Proposal</button>
+          </div>
+          <div class="gov-model-script-block">
+            <div class="gov-model-script-hd">
+              <h4>1 · Model DDL</h4>
+              <div class="gov-model-actions" style="margin:0">
+                <button type="button" class="btn btn-ghost" id="govModelCopyDdlBtn">Copy DDL</button>
+                <button type="button" class="btn btn-ghost" id="govModelDownloadDdlBtn">Download DDL</button>
+              </div>
+            </div>
+            <textarea id="govModelDdlEditor" class="gov-model-ddl" spellcheck="false" aria-label="Generated DDL"></textarea>
+          </div>
+          <div class="gov-model-script-block" style="margin-top:14px">
+            <div class="gov-model-script-hd">
+              <h4>2 · Data ingestion</h4>
+              <div class="gov-model-actions" style="margin:0">
+                <button type="button" class="btn btn-ghost" id="govModelCopyIngestBtn">Copy ingestion</button>
+                <button type="button" class="btn btn-ghost" id="govModelDownloadIngestBtn">Download ingestion</button>
+              </div>
+            </div>
+            <p class="lead" style="margin:0 0 8px">Loads resolved source tables into selected model objects. Run after DDL. Order: date → dimensions → facts.</p>
+            <textarea id="govModelIngestEditor" class="gov-model-ddl" spellcheck="false" aria-label="Generated ingestion script"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-admin" class="admin-pane hidden">
+      <section class="acl-hero" aria-label="Admin">
+        <div class="acl-hero-copy">
+          <h1>Admin</h1>
+          <p>Manage user groups, personas, and users for DataHive access and personalisation.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <div class="admin-tabs" role="tablist" aria-label="Admin sections">
+        <button type="button" class="admin-tab active" role="tab" aria-selected="true" data-admin-tab="groups">User Groups</button>
+        <button type="button" class="admin-tab" role="tab" aria-selected="false" data-admin-tab="personas">Personas</button>
+        <button type="button" class="admin-tab" role="tab" aria-selected="false" data-admin-tab="users">Users</button>
+      </div>
+
+      <section class="admin-panel" id="adminSectionGroups" data-admin-section="groups">
+        <div class="admin-toolbar">
+          <h2>User Groups</h2>
+          <span class="count" id="adminGroupsCount">0</span>
+          <label class="admin-search" for="adminSearchGroups">
+            <span class="ic" aria-hidden="true">⌕</span>
+            <input id="adminSearchGroups" type="search" placeholder="Search user groups…" autocomplete="off" />
+          </label>
+          <button type="button" class="btn btn-primary" id="adminAddGroupBtn">Add group</button>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="adminGroupsBody"></div>
+        </div>
+      </section>
+
+      <section class="admin-panel hidden" id="adminSectionPersonas" data-admin-section="personas">
+        <div class="admin-toolbar">
+          <h2>Personas</h2>
+          <span class="count" id="adminPersonasCount">0</span>
+          <label class="admin-search" for="adminSearchPersonas">
+            <span class="ic" aria-hidden="true">⌕</span>
+            <input id="adminSearchPersonas" type="search" placeholder="Search personas…" autocomplete="off" />
+          </label>
+          <button type="button" class="btn btn-primary" id="adminAddPersonaBtn">Add persona</button>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="adminPersonasBody"></div>
+        </div>
+      </section>
+
+      <section class="admin-panel hidden" id="adminSectionUsers" data-admin-section="users">
+        <div class="admin-toolbar">
+          <h2>Users</h2>
+          <span class="count" id="adminUsersCount">0</span>
+          <label class="admin-search" for="adminSearchUsers">
+            <span class="ic" aria-hidden="true">⌕</span>
+            <input id="adminSearchUsers" type="search" placeholder="Search users…" autocomplete="off" />
+          </label>
+          <button type="button" class="btn btn-primary" id="adminAddUserBtn">Add user</button>
+        </div>
+        <div class="admin-table-wrap">
+          <div id="adminUsersBody"></div>
+        </div>
+      </section>
+    </div>
+
+    <div id="view-reporting" class="rpt-pane hidden">
+      <section class="acl-hero" aria-label="Insights">
+        <div class="acl-hero-copy">
+          <h1>Insights</h1>
+          <p>Business KPI dashboards — Customer 360, sales trends, and delivery-channel performance — scoped by connection, database, and schema.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <section class="rpt-filters" aria-label="Dashboard scope">
+        <div class="rpt-filter-grid">
+          <div class="field" style="margin:0">
+            <label for="rptConnection">Connection <span class="req">*</span></label>
+            <select id="rptConnection">
+              <option value="">Select connection…</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="rptDatabase">Database <span class="req">*</span></label>
+            <select id="rptDatabase" disabled>
+              <option value="">Select connection first…</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="rptSchema">Schema <span class="req">*</span></label>
+            <select id="rptSchema" disabled>
+              <option value="">Select database first…</option>
+            </select>
+          </div>
+        </div>
+        <div class="rpt-filter-actions">
+          <button type="button" class="btn btn-primary" id="rptApplyBtn" disabled>Apply dashboard</button>
+          <button type="button" class="btn btn-ghost" id="rptResetBtn">Reset</button>
+          <span class="rpt-status" id="rptStatus" aria-live="polite"></span>
+        </div>
+        <div class="err hidden" id="rptError" style="margin-top:10px"></div>
+      </section>
+
+      <div id="rptEmpty" class="rpt-empty">
+        Select a <strong>connection</strong>, <strong>database</strong>, and <strong>schema</strong>, then apply to load Customer 360, sales, and delivery KPIs.
+      </div>
+
+      <div id="rptDashboard" class="rpt-dashboard hidden">
+        <div class="rpt-kpi-row" id="rptKpiRow"></div>
+        <div class="rpt-slice-bar" aria-label="Slice and dice">
+          <div class="rpt-slice-row">
+            <span class="rpt-slice-label">Slice by</span>
+            <div class="rpt-slice-modes" id="rptSliceModes" role="group" aria-label="Slice dimension"></div>
+          </div>
+          <div class="rpt-slice-row">
+            <span class="rpt-slice-label">Dice</span>
+            <div class="rpt-chips" id="rptChips" role="group" aria-label="Slice values"></div>
+          </div>
+        </div>
+        <div class="rpt-charts">
+          <section class="rpt-card">
+            <div class="rpt-card-hd">
+              <h2 id="rptBarTitle">Mode of delivery</h2>
+              <p id="rptBarHint">Preferred channel / fulfillment mix</p>
+            </div>
+            <div class="rpt-chart-wrap" id="rptBarChart"></div>
+          </section>
+          <section class="rpt-card">
+            <div class="rpt-card-hd">
+              <h2>Sales trend</h2>
+              <p id="rptTrendHint">Monthly revenue from account transactions</p>
+            </div>
+            <div class="rpt-chart-wrap" id="rptTrendChart"></div>
+          </section>
+        </div>
+        <div class="rpt-charts rpt-charts-secondary">
+          <section class="rpt-card">
+            <div class="rpt-card-hd">
+              <h2>Customer 360</h2>
+              <p id="rptC360Hint">Profile coverage across geo, channel, and loyalty</p>
+            </div>
+            <div id="rptC360" class="rpt-c360"></div>
+          </section>
+          <section class="rpt-card">
+            <div class="rpt-card-hd">
+              <h2>Top products</h2>
+              <p id="rptProductsHint">Revenue leaders from order lines</p>
+            </div>
+            <div class="rpt-table-wrap" id="rptProducts"></div>
+          </section>
+        </div>
+        <section class="rpt-card">
+          <div class="rpt-card-hd">
+            <h2 id="rptDetailTitle">Customer sample</h2>
+            <p id="rptDetailHint">Records contributing to the active dice selection</p>
+          </div>
+          <div class="rpt-table-wrap" id="rptTable"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="adminModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
+  <section class="panel admin-modal">
+    <div class="panel-hd">
+      <h2 id="adminModalTitle">Add</h2>
+      <button type="button" class="icon-x" id="adminModalClose" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-bd">
+      <form id="adminForm" novalidate>
+        <div id="adminFormFields"></div>
+        <div class="err hidden" id="adminFormError"></div>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" id="adminFormCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="adminFormSave">Save</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</div>
+
+<div id="connModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
+  <section class="panel conn-modal" id="connPanel">
+    <div class="panel-hd">
+      <img class="mini" id="panelLogo" src="" alt="" width="28" height="22" aria-hidden="true" />
+      <h2 id="panelTitle">API connectivity</h2>
+      <button type="button" class="icon-x" id="panelCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="panel-bd">
+      <p class="lead" id="panelLead"></p>
+      <form id="connForm" novalidate>
+        <div class="field">
+          <label for="cf_display_name">Connection name <span class="req">*</span></label>
+          <input id="cf_display_name" name="display_name" required maxlength="128" />
+        </div>
+
+            <div id="cloudFields">
+              <div class="row3">
+                <div class="field">
+                  <label for="cf_account_id" id="cf_account_label">Project / Account ID <span class="req">*</span></label>
+                  <input id="cf_account_id" name="account_id" maxlength="128" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="cf_region">Default region</label>
+                  <select id="cf_region" name="region"></select>
+                </div>
+                <div class="field">
+                  <label for="cf_auth_type">Authentication</label>
+                  <select id="cf_auth_type" name="auth_type"></select>
+                </div>
+              </div>
+
+              <div class="field hidden" id="group_azure_extra">
+                <div class="row2" style="margin-bottom:0">
+                  <div class="field" style="margin-bottom:0">
+                    <label for="cf_tenant_id">Tenant ID <span class="req">*</span></label>
+                    <input id="cf_tenant_id" name="tenant_id" maxlength="128" autocomplete="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                  </div>
+                  <div class="field" style="margin-bottom:0" id="group_resource_group">
+                    <label for="cf_resource_group">Resource group</label>
+                    <input id="cf_resource_group" name="resource_group" maxlength="128" placeholder="rg-analytics (optional)" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="field" id="group_sa">
+                <label for="cf_sa_json" id="cf_sa_label">Service account JSON <span class="req">*</span></label>
+                <textarea id="cf_sa_json" name="service_account_json" maxlength="65536"></textarea>
+                <div class="help" id="cf_sa_help"></div>
+              </div>
+
+              <div class="field hidden" id="group_api_key">
+                <label for="cf_api_key" id="cf_api_key_label">API key <span class="req">*</span></label>
+                <input id="cf_api_key" name="api_key" type="password" maxlength="4096" autocomplete="off" />
+              </div>
+
+              <div class="row2 hidden" id="group_access_keys">
+                <div class="field">
+                  <label for="cf_access_key_id">Access key ID <span class="req">*</span></label>
+                  <input id="cf_access_key_id" name="access_key_id" maxlength="128" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="cf_secret_access_key">Secret access key <span class="req">*</span></label>
+                  <input id="cf_secret_access_key" name="secret_access_key" type="password" maxlength="4096" autocomplete="off" />
+                </div>
+              </div>
+
+              <div class="row2 hidden" id="group_oauth">
+                <div class="field">
+                  <label for="cf_client_id" id="cf_client_id_label">Client ID <span class="req">*</span></label>
+                  <input id="cf_client_id" name="client_id" maxlength="512" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="cf_client_secret" id="cf_client_secret_label">Client secret <span class="req">*</span></label>
+                  <input id="cf_client_secret" name="client_secret" type="password" maxlength="4096" autocomplete="off" />
+                </div>
+              </div>
+
+              <div class="field hidden" id="group_refresh_token">
+                <label for="cf_refresh_token" id="cf_refresh_token_label">Refresh token</label>
+                <input id="cf_refresh_token" name="refresh_token" type="password" maxlength="4096" autocomplete="off" />
+                <div class="help" id="cf_refresh_token_help">Optional. Paste a Google refresh token for a full live token check.</div>
+              </div>
+
+              <div class="field hidden" id="group_role_arn">
+                <label for="cf_role_arn">IAM role ARN <span class="req">*</span></label>
+                <input id="cf_role_arn" name="role_arn" maxlength="512" placeholder="arn:aws:iam::123456789012:role/DataHiveRole" autocomplete="off" />
+                <div class="help">Role DataHive should assume in your AWS account.</div>
+              </div>
+
+              <div id="group_db_host" class="hidden">
+                <div class="row2" style="margin-bottom:0">
+                  <div class="field" style="margin-bottom:0">
+                    <label for="cf_db_port">Port <span class="req">*</span></label>
+                    <input id="cf_db_port" name="port" maxlength="8" inputmode="numeric" placeholder="5432" autocomplete="off" />
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label for="cf_db_database">Database name <span class="req">*</span></label>
+                    <input id="cf_db_database" name="database" maxlength="256" placeholder="analytics" autocomplete="off" />
+                  </div>
+                </div>
+                <div class="help" id="cf_db_host_help" style="margin-top:8px">Host is above. Default ports: PostgreSQL 5432 · SQL Server 1433 · MongoDB 27017.</div>
+              </div>
+
+              <div class="field" id="group_apis">
+                <label id="cf_apis_label">APIs / services to fetch from</label>
+                <div class="checks" id="cf_apis"></div>
+              </div>
+
+              <div class="field">
+                <label for="cf_scope" id="cf_scope_label">Dataset / bucket scope</label>
+                <input id="cf_scope" name="dataset_scope" maxlength="512" />
+                <div class="help" id="cf_scope_help">Optional allow-list of resources or patterns.</div>
+              </div>
+            </div>
+
+            <div id="uploadFields" class="hidden">
+              <div class="field">
+                <label>Upload data file <span class="req">*</span></label>
+                <div class="uploadzone" id="uploadDropzone" tabindex="0" role="button" aria-label="Upload data file">
+                  <img class="upimg" src="images/upload.png" alt="" width="64" height="64" />
+                  <div class="uptext">Click to upload or drag &amp; drop</div>
+                  <div class="uphint">CSV, Excel (.xlsx, .xls), JSON, or Parquet — up to 50 MB</div>
+                </div>
+                <input type="file" id="uploadFileInput" class="hidden" accept=".csv,.xlsx,.xls,.json,.parquet,.tsv,.txt" />
+                <div id="uploadSelected" class="selectedfile hidden">
+                  <img class="sf-icon" src="images/upload.png" alt="" width="28" height="28" />
+                  <div class="sf-meta">
+                    <div class="sf-name" id="uploadSelectedName"></div>
+                    <div class="sf-size" id="uploadSelectedSize"></div>
+                  </div>
+                  <button type="button" class="icon-btn" id="uploadClearBtn" aria-label="Remove selected file">✕</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="cf_upload_format">File format</label>
+                <select id="cf_upload_format" name="upload_format">
+                  <option value="auto">Detect automatically</option>
+                  <option value="csv">CSV / TSV</option>
+                  <option value="excel">Excel</option>
+                  <option value="json">JSON</option>
+                  <option value="parquet">Parquet</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="cf_upload_notes">Notes</label>
+                <input id="cf_upload_notes" name="upload_notes" maxlength="512" placeholder="Optional context for this dataset" />
+              </div>
+            </div>
+
+            <div id="formError" class="err hidden"></div>
+
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" id="cancelBtn">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="submitBtn">Connect &amp; fetch</button>
+            </div>
+          </form>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<script src="js/connector_session.js"></script>
+<script src="js/save-connector.js"></script>
+<script src="js/assets.js"></script>
+<script src="js/sql-explorer.js"></script>
+<script src="js/reporting.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
