@@ -11,6 +11,7 @@ Configuration (repo-root `.env`):
     DATAHIVE_AI_TIMEOUT     seconds per request (default: 60)
     DATAHIVE_AI_MAX_ROWS    row cap for generated queries (default: 500)
     DATAHIVE_AI_SEND_RESULTS  false keeps result rows out of every prompt
+    DATAHIVE_AI_THINK       true lets a reasoning model deliberate (Ollama only)
 
 `auto` picks OpenAI when an API key is present and otherwise disables the
 feature. Running locally is opt-in: set DATAHIVE_AI_PROVIDER=ollama explicitly.
@@ -57,6 +58,7 @@ class AISettings:
     timeout: float
     max_rows: int
     send_results: bool
+    think: bool = False
 
     @property
     def configured(self) -> bool:
@@ -115,6 +117,7 @@ def load_settings() -> AISettings:
         timeout=_env_float("DATAHIVE_AI_TIMEOUT", 60.0),
         max_rows=max(1, min(_env_int("DATAHIVE_AI_MAX_ROWS", 500), 10_000)),
         send_results=_env_bool("DATAHIVE_AI_SEND_RESULTS", True),
+        think=_env_bool("DATAHIVE_AI_THINK", False),
     )
 
 
@@ -219,7 +222,24 @@ class OllamaProvider:
         }
         if json_mode:
             payload["format"] = "json"
+        if not self._settings.think:
+            # Reasoning models spend most of their time here, and this pipeline
+            # gives them the schema outright. Measured ~18x faster off.
+            payload["think"] = False
 
+        data = self._post(payload)
+        if data is None:
+            payload.pop("think", None)
+            data = self._post(payload, allow_think_retry=False)
+        try:
+            # Reasoning lands in a separate `thinking` key, so content is clean.
+            return str(data["message"]["content"] or "")
+        except (KeyError, TypeError) as exc:
+            raise AIProviderError(f"Unexpected Ollama response shape: {data}") from exc
+
+    def _post(
+        self, payload: dict[str, Any], *, allow_think_retry: bool = True
+    ) -> dict[str, Any] | None:
         try:
             response = httpx.post(
                 f"{self._base_url}/api/chat",
@@ -233,14 +253,13 @@ class OllamaProvider:
             ) from exc
 
         if response.status_code >= 400:
+            # Older daemons and non-reasoning models reject `think`; drop it and retry.
+            if allow_think_retry and "think" in response.text.lower():
+                return None
             raise AIProviderError(
                 f"Ollama request failed ({response.status_code}): {response.text[:400]}"
             )
-        data = response.json()
-        try:
-            return str(data["message"]["content"] or "")
-        except (KeyError, TypeError) as exc:
-            raise AIProviderError(f"Unexpected Ollama response shape: {data}") from exc
+        return response.json()
 
 
 def get_provider(settings: AISettings | None = None) -> LLMProvider:
