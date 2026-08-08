@@ -10,14 +10,9 @@
   "use strict";
 
   function connectorApiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    var host = "127.0.0.1";
-    if (global.location && global.location.hostname) {
-      host = global.location.hostname;
-    }
-    return "http://" + host + ":5055";
+    return global.DataHiveHttp
+      ? global.DataHiveHttp.apiBase()
+      : "http://127.0.0.1:5055";
   }
 
   var API_URL = connectorApiBase() + "/api/connectors";
@@ -39,6 +34,7 @@
     credentials_ciphertext: true
   };
 
+  // Prefer "unknown" over Admin here — connector audit logs should not invent an owner.
   function getRequestUser() {
     var el = document.getElementById("userNm");
     if (el && el.textContent) {

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nextgen-datahive"
 version = "0.1.0"
-description = "Local-first data platform: connector registry, asset catalog, SQL explorer, glossary and data quality"
+description = "Local-first data platform: connector registry, asset catalog, Ask Aura, SQL explorer, glossary and data quality"
 readme = "README.md"
 requires-python = ">=3.9"
 
@@ -38,16 +38,10 @@ dev = [
 [project.scripts]
 datahive-api = "api.__main__:main"
 
-[tool.setuptools]
-packages = [
-    "api",
-    "api.routers",
-    "api.repositories",
-    "api.services",
-    "core",
-    "core.ai",
-    "core.validators",
-]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "core*"]
+exclude = ["tests*", "scripts*", "storage*", "web*", "resources*"]
 
 [tool.ruff]
 line-length = 100
@@ -84,6 +78,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Re-exported for the package's public surface.
 "core/validators/__init__.py" = ["F401"]
+"core/ai/__init__.py" = ["F401"]
 "api/routers/__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]

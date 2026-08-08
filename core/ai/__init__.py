@@ -9,11 +9,25 @@ Pipeline (see api/routers/ask.py):
 """
 from __future__ import annotations
 
-from .provider import AINotConfigured, AIProviderError, AISettings, load_settings
+from .errors import (
+    AINotConfigured,
+    AIProviderError,
+    AskError,
+    GenerationError,
+    PlanningError,
+    UnsafeQueryError,
+)
+from .provider import AISettings, get_provider, load_settings, provider_status
 
 __all__ = [
     "AINotConfigured",
     "AIProviderError",
     "AISettings",
+    "AskError",
+    "GenerationError",
+    "PlanningError",
+    "UnsafeQueryError",
+    "get_provider",
     "load_settings",
+    "provider_status",
 ]

@@ -5,69 +5,21 @@
 (function (global) {
   "use strict";
 
-  function apiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    var host = "127.0.0.1";
-    if (global.location && global.location.hostname) {
-      host = global.location.hostname;
-    }
-    return "http://" + host + ":5055";
-  }
-
-  function userHeader() {
-    var el = document.getElementById("userNm");
-    var name = el && el.textContent ? el.textContent.trim() : "";
-    return name || "Admin";
-  }
-
-  function headers(extra) {
-    var h = { "X-DataHive-User": userHeader(), "Content-Type": "application/json" };
-    if (extra) {
-      Object.keys(extra).forEach(function (k) {
-        h[k] = extra[k];
-      });
-    }
-    return h;
-  }
+  var http = global.DataHiveHttp;
+  var apiBase = http.apiBase;
+  var escapeHtml = http.escapeHtml;
+  var headers = http.headers;
 
   async function fetchJson(path, options) {
-    var res = await fetch(apiBase() + path, options || {});
-    var text = await res.text();
-    if (!res.ok) {
-      var detail = text || "HTTP " + res.status;
-      try {
-        var parsed = JSON.parse(text);
-        if (parsed && parsed.detail) {
-          detail =
-            typeof parsed.detail === "string"
-              ? parsed.detail
-              : JSON.stringify(parsed.detail);
-        }
-      } catch (_e) {
-        /* keep raw text */
-      }
-      if (res.status === 404 && path.indexOf("/api/sql/") === 0) {
-        detail =
+    try {
+      return await http.fetchJson(path, options);
+    } catch (err) {
+      if (err && err.httpStatus === 404 && String(path).indexOf("/api/sql/") === 0) {
+        err.message =
           "SQL API not found (404). Stop the old server on port 5055, then run: python -m api";
-      } else if (res.status === 404) {
-        detail =
-          "Connector API route not found (404). Restart the API: python -m api";
       }
-      var err = new Error(detail);
-      err.httpStatus = res.status;
       throw err;
     }
-    return text ? JSON.parse(text) : {};
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   function quoteIdent(part) {

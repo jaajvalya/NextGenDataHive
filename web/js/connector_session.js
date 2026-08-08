@@ -14,10 +14,9 @@
   }
 
   function apiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    return "http://" + host() + ":5055";
+    return global.DataHiveHttp
+      ? global.DataHiveHttp.apiBase()
+      : "http://" + host() + ":5055";
   }
 
   function watchdogBase() {

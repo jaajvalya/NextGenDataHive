@@ -7,57 +7,10 @@
 (function (global) {
   "use strict";
 
-  function apiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    var host = "127.0.0.1";
-    if (global.location && global.location.hostname) {
-      host = global.location.hostname;
-    }
-    return "http://" + host + ":5055";
-  }
-
-  function userHeader() {
-    var el = document.getElementById("userNm");
-    var name = el && el.textContent ? el.textContent.trim() : "";
-    return name || "Admin";
-  }
-
-  function headers() {
-    return { "X-DataHive-User": userHeader(), "Content-Type": "application/json" };
-  }
-
-  async function postJson(path, body) {
-    var res = await fetch(apiBase() + path, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(body),
-    });
-    var text = await res.text();
-    var parsed = null;
-    try {
-      parsed = text ? JSON.parse(text) : {};
-    } catch (_e) {
-      parsed = null;
-    }
-    if (!res.ok) {
-      var detail = (parsed && parsed.detail) || text || "HTTP " + res.status;
-      if (typeof detail !== "string") detail = JSON.stringify(detail);
-      var err = new Error(detail);
-      err.httpStatus = res.status;
-      throw err;
-    }
-    return parsed || {};
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
+  var http = global.DataHiveHttp;
+  var apiBase = http.apiBase;
+  var escapeHtml = http.escapeHtml;
+  var postJson = http.postJson;
 
   function $(sel) {
     return document.querySelector(sel);
@@ -369,7 +322,7 @@
     var nav = document.getElementById("navAsk");
     try {
       var res = await fetch(apiBase() + "/api/ask/health", {
-        headers: headers(),
+        headers: http.headers(),
         cache: "no-store",
       });
       state.health = res.ok ? await res.json() : { enabled: false };

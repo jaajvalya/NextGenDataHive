@@ -125,10 +125,6 @@ class CatalogIndex:
                 return t
         return None
 
-    def find_by_name(self, table: str) -> list[TableRef]:
-        want = (table or "").strip().lower()
-        return [t for t in self.tables if t.table.lower() == want]
-
     def terms_for(self, schema: str, table: str) -> list[dict[str, Any]]:
         return self.glossary.get(f"{(schema or '').strip()}|{(table or '').strip()}".lower(), [])
 

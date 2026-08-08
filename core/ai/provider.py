@@ -28,6 +28,7 @@ from typing import Any, Protocol
 import httpx
 
 from ..config import load_repo_dotenv
+from .errors import AINotConfigured, AIProviderError
 
 _log = logging.getLogger("datahive.ai.provider")
 
@@ -40,13 +41,19 @@ OLLAMA_DEFAULT_MODEL = "llama3.1"
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
-
-class AINotConfigured(RuntimeError):
-    """No usable LLM provider is configured."""
-
-
-class AIProviderError(RuntimeError):
-    """The provider was reachable but the call failed."""
+# Re-export so existing `from core.ai.provider import AINotConfigured` keeps working.
+__all__ = [
+    "AINotConfigured",
+    "AIProviderError",
+    "AISettings",
+    "LLMProvider",
+    "OllamaProvider",
+    "OpenAIProvider",
+    "get_provider",
+    "load_settings",
+    "parse_json_response",
+    "provider_status",
+]
 
 
 @dataclass(frozen=True)

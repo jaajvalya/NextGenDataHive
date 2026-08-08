@@ -10,7 +10,8 @@ import json
 import logging
 from typing import Any
 
-from .provider import AIProviderError, LLMProvider
+from .errors import AIProviderError
+from .provider import LLMProvider
 
 _log = logging.getLogger("datahive.ai.answer")
 

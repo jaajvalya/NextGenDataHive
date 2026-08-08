@@ -4,39 +4,7 @@
 (function (global) {
   "use strict";
 
-  function apiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    var host = "127.0.0.1";
-    if (global.location && global.location.hostname) {
-      host = global.location.hostname;
-    }
-    return "http://" + host + ":5055";
-  }
-
-  function userHeader() {
-    var el = document.getElementById("userNm");
-    var name = el && el.textContent ? el.textContent.trim() : "";
-    return name || "Admin";
-  }
-
-  function roleHeader() {
-    if (typeof global.getDataHiveUserRole === "function") {
-      return global.getDataHiveUserRole() || "admin";
-    }
-    // Default Admin chip → full access until a signed-in user model exists.
-    var name = userHeader().toLowerCase();
-    if (name === "admin" || name === "administrator") return "admin";
-    return "editor";
-  }
-
-  function headers() {
-    return {
-      "X-DataHive-User": userHeader(),
-      "X-DataHive-Role": roleHeader(),
-    };
-  }
+  var http = global.DataHiveHttp;
 
   function withConnector(path, connectorId) {
     if (!connectorId) return path;
@@ -45,30 +13,7 @@
   }
 
   async function fetchJson(path) {
-    var res = await fetch(apiBase() + path, { headers: headers() });
-    var text = await res.text();
-    if (!res.ok) {
-      var detail = text || "HTTP " + res.status;
-      try {
-        var parsed = JSON.parse(text);
-        if (parsed && parsed.detail) {
-          detail =
-            typeof parsed.detail === "string"
-              ? parsed.detail
-              : JSON.stringify(parsed.detail);
-        }
-      } catch (_e) {
-        /* keep raw text */
-      }
-      if (res.status === 404) {
-        detail =
-          "Connector API route not found (404). Restart the API: python -m api";
-      }
-      var err = new Error(detail);
-      err.httpStatus = res.status;
-      throw err;
-    }
-    return text ? JSON.parse(text) : {};
+    return http.fetchJson(path);
   }
 
   async function summary(connectorId) {
@@ -142,29 +87,10 @@
       return fetchJson(path);
     },
     snowflakeEnsureRawStage: function (connectorId) {
-      return fetch(apiBase() + "/api/snowflake/" + encodeURIComponent(connectorId) + "/stages/ensure-raw", {
-        method: "POST",
-        headers: headers(),
-      }).then(function (res) {
-        return res.text().then(function (text) {
-          var data = {};
-          try {
-            data = text ? JSON.parse(text) : {};
-          } catch (_e) {
-            data = { detail: text };
-          }
-          if (!res.ok) {
-            var detail = (data && data.detail) || text || "HTTP " + res.status;
-            var err = new Error(
-              typeof detail === "string" ? detail : JSON.stringify(detail)
-            );
-            err.detail = detail;
-            err.httpStatus = res.status;
-            throw err;
-          }
-          return data;
-        });
-      });
+      return http.postJson(
+        "/api/snowflake/" + encodeURIComponent(connectorId) + "/stages/ensure-raw",
+        {}
+      );
     },
   };
 })(window);

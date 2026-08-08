@@ -40,26 +40,11 @@
     return document.querySelector(sel);
   }
 
+  var http = global.DataHiveHttp;
+  var apiBase = http.apiBase;
+  var userHeader = http.userName;
   function escapeHtml(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function apiBase() {
-    if (global.DATAHIVE_CONNECTOR_API) {
-      return String(global.DATAHIVE_CONNECTOR_API).replace(/\/$/, "");
-    }
-    var host = "127.0.0.1";
-    if (global.location && global.location.hostname) host = global.location.hostname;
-    return "http://" + host + ":5055";
-  }
-
-  function userHeader() {
-    var el = document.getElementById("userNm");
-    return (el && el.textContent && el.textContent.trim()) || "Admin";
+    return http.escapeHtml(s == null ? "" : s);
   }
 
   function setStatus(msg) {

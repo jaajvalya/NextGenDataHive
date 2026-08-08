@@ -50,16 +50,18 @@ core/                    domain logic, no HTTP concerns
 
 web/                     everything served to the browser, and nothing else
   main.html              markup only
-  css/main.css           styles
-  js/                    app.js plus the connectors, assets, insights and
-                         reporting modules
+  css/                   main.css (shell) + ask.css (Ask Aura)
+  js/
+    http.js              shared apiBase / headers / fetch helpers
+    ask.js · assets.js · sql-explorer.js · reporting.js
+    save-connector.js · connector_session.js · app.js (shell)
   images/                logos and branding, mounted at /images
 
 resources/               static files the API hands out (glossary template)
 storage/                 runtime data, git-ignored
   uploads/               ETL source files uploaded through the UI
   glossary/              uploaded glossary workbooks
-scripts/                 launchers and diagnostics
+scripts/                 launchers and diagnostics (see scripts/README.md)
 tests/                   unit tests (no database required)
 ```
 
@@ -96,11 +98,11 @@ To keep it running in the background on macOS:
 
 ```bash
 bash scripts/start_api.sh          # installs a KeepAlive LaunchAgent
-open "scripts/Open DataHive UI.command"
+open scripts/open_ui.command
 ```
 
-On Windows, run `scripts/install_ui_watchdog.ps1` once, then use
-`scripts/Open DataHive UI.bat`.
+On Windows, run `scripts/install_watchdog.ps1` once, then use
+`scripts/open_ui.bat`.
 
 ## Development
 
