@@ -24,12 +24,13 @@ api/                     the HTTP layer — thin, delegates to core/
   audit.py               connection-failure auditing
   files.py               upload landing zone: safe names, capped writes
   routers/               one module per resource group
-    health · connectors · assets · sql · data_quality
+    health · connectors · assets · sql · ask · data_quality
     snowflake · glossary · etl · logs · ui
   repositories/
     connectors.py        data access for the saved-connector collection
   services/
     catalog.py           catalog helpers shared by assets and sql
+    sql_runner.py        platform routing and query logging for every execution
   connector_watchdog.py  optional helper that keeps the API alive on Windows
 
 core/                    domain logic, no HTTP concerns
@@ -41,6 +42,8 @@ core/                    domain logic, no HTTP concerns
   asset_catalog.py       unified asset browsing across sources
   glossary_store.py      glossary ingest and column-comment sync
   data_quality.py        profiling and rule execution
+  ai/                    natural-language querying, behind one pluggable provider
+    provider · context · planner · nl2sql · guard · answer
   validators/            one module per source family, behind one dispatch
     base · upload · snowflake · databricks · postgres · mongodb
     rdbms · aws · google · gcp · azure · msgraph · gdrive
@@ -107,8 +110,10 @@ On Windows, run `scripts/install_ui_watchdog.ps1` once, then use
 ```
 
 The tests cover the parts that fail silently rather than loudly: the read-only
-SQL guard, credential sealing, log redaction, upload filename safety, and the
-full set of registered routes.
+SQL guard, credential sealing, log redaction, upload filename safety, the full
+set of registered routes, and the natural-language pipeline (provider selection,
+schema context, generated-SQL validation, and one end-to-end pass with a
+scripted model).
 
 `scripts/check_postgres_env.py` is a diagnostic, not a test — it opens a real
 connection and prints what `.env` resolves to.
@@ -119,12 +124,61 @@ connection and prints what `.env` resolves to.
 |---|---|
 | Connectors | Register, test and save connections; credentials encrypted at rest |
 | Assets | Browse schemas, tables and columns discovered across connected sources |
+| Ask Aura | Natural-language querying — picks the connector and writes the SQL for you |
 | Insights | Read-only SQL explorer against Postgres and Snowflake |
 | Glossary | Upload business terms and push them onto columns as comments |
 | Governance | Data quality rules and profiling results |
 | Reporting | Charts over query results |
 | ETL | File upload and landing |
 | Admin | Connection and query audit logs |
+
+## Ask Aura — natural-language querying
+
+Ask a question in English and Aura picks a connector, reads only the schema it
+needs, writes a read-only query and runs it through the same executor as the
+Insights tab.
+
+The tab is hidden until a model provider is configured in `.env`. For a hosted
+model:
+
+```bash
+DATAHIVE_AI_PROVIDER=openai      # or ollama, none, or auto
+DATAHIVE_AI_API_KEY=sk-...       # OPENAI_API_KEY also works
+DATAHIVE_AI_MODEL=gpt-4o-mini
+```
+
+To keep every question on the machine, run a local model instead:
+
+```bash
+ollama pull qwen2.5-coder:7b     # once; ~4.7 GB
+
+DATAHIVE_AI_PROVIDER=ollama
+DATAHIVE_AI_MODEL=qwen2.5-coder:7b
+```
+
+`auto` uses OpenAI when a key is present and is off otherwise — local models are
+opt-in, so an unset provider hides the tab rather than pointing at a daemon that
+may not be installed. Azure OpenAI works through the same client: set
+`DATAHIVE_AI_PROVIDER=azure` and point `DATAHIVE_AI_BASE_URL` at the deployment.
+
+How a question becomes an answer:
+
+1. The catalog and glossary are condensed into a list of connectors and table
+   names — names only, so the prompt stays small on a large estate.
+2. The model picks one connector and a handful of tables. Anything it names that
+   is not in the catalog is discarded.
+3. Those connectors are then invoked for the column detail of just those tables.
+4. SQL is generated in the right dialect and validated before it runs: the
+   read-only guard, a check that every referenced table exists, and a row cap.
+5. The rows come back with a written answer, the SQL, and the sources used.
+
+Only step 5 sends actual data to the model, and only a capped sample. Set
+`DATAHIVE_AI_SEND_RESULTS=false` to skip it and show the table on its own.
+Credentials are never included in any prompt. Every ask is written to the query
+log with `source: "ask"`.
+
+Answers are limited to Postgres and Snowflake, the two platforms that can
+execute SQL today.
 
 ## Sources
 
@@ -147,6 +201,9 @@ execution, glossary comment sync). Each source family has its own validator in
 - Stored passwords, API keys and service-account JSON are Fernet-encrypted with
   a key derived from `DATAHIVE_SECRETS_KEY`; they are never returned to the UI.
 - The SQL explorer rejects anything that is not a single read-only statement.
+- Generated SQL passes through that same guard, plus a check that every table it
+  references exists in the catalog, so a hallucinated name never reaches a
+  database.
 - Sensitive keys are redacted before anything is written to the logs.
 - Uploaded filenames are flattened to a single path component with a unique
   prefix, so they cannot escape the landing directory or collide.

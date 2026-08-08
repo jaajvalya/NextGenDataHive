@@ -981,7 +981,12 @@ def infer_query_schema_table(sql: str) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _assert_readonly_sql(sql: str) -> str:
+def assert_readonly_sql(sql: str) -> str:
+    """Reject anything that is not a single read-only statement.
+
+    Shared by the SQL explorer and the Ask Aura pipeline, so generated SQL is held to
+    exactly the same rule as hand-written SQL.
+    """
     raw = sql.strip()
     if not raw:
         raise ValueError("Query is empty.")
@@ -1018,7 +1023,7 @@ def _json_cell(value: Any) -> Any:
 
 def execute_sql_query(sql: str, *, max_rows: int = 1000) -> dict[str, Any]:
     """Run one read-only SQL statement; returns column names and row values."""
-    statement = _assert_readonly_sql(sql)
+    statement = assert_readonly_sql(sql)
     capped = min(max(int(max_rows), 1), 10_000)
 
     with postgres_connection() as conn, conn.cursor() as cur:

@@ -834,7 +834,7 @@ def execute_sql_query_for_doc(doc: dict[str, Any], sql: str, *, max_rows: int = 
     """Run one read-only SQL statement against Snowflake; returns columns + rows."""
     from . import postgres_store
 
-    statement = postgres_store._assert_readonly_sql(sql)
+    statement = postgres_store.assert_readonly_sql(sql)
     capped = min(max(int(max_rows), 1), 10_000)
     conn = None
     try:

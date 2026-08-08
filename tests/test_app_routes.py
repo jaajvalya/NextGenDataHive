@@ -34,6 +34,10 @@ EXPECTED_ROUTES = {
     ("GET", "/api/assets/counts"),
     ("GET", "/api/assets/tables"),
     ("GET", "/api/assets/structure"),
+    # ask (natural-language querying)
+    ("GET", "/api/ask/health"),
+    ("POST", "/api/ask"),
+    ("POST", "/api/ask/sql"),
     # sql / quality / logs
     ("POST", "/api/sql/query"),
     ("POST", "/api/data-quality/run"),

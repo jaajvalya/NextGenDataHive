@@ -14,6 +14,21 @@ class SqlQueryIn(BaseModel):
     connector_id: str | None = None
 
 
+class AskSqlIn(BaseModel):
+    """Generate SQL for a question without running it."""
+
+    question: str = Field(..., min_length=3, max_length=2000)
+    connector_id: str | None = None
+    max_rows: int = Field(default=500, ge=1, le=10_000)
+
+
+class AskIn(AskSqlIn):
+    """Generate and run, optionally with a written answer."""
+
+    execute: bool = True
+    explain_result: bool = True
+
+
 class DataQualityRunIn(BaseModel):
     connector_id: str = Field(..., min_length=1)
     schema: str = Field(..., min_length=1)

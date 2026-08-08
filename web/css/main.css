@@ -524,6 +524,62 @@
     .sql-tree-panel { flex:0 0 auto; max-width:none; max-height:220px; border-right:none; border-bottom:1px solid var(--gray-200); }
   }
 
+  /* ---------- Ask Aura (natural-language querying) ---------- */
+  .ask-pane { width:99%; margin:0 auto; text-align:left; display:flex; flex-direction:column; gap:14px; }
+  .ask-composer { display:flex; flex-direction:column; gap:10px; }
+  .ask-input {
+    width:100%; resize:vertical; min-height:58px; font:inherit; font-size:15px; line-height:1.45;
+    border:1.5px solid var(--gray-200); border-radius:10px; padding:12px 14px; color:var(--ink-900);
+  }
+  .ask-input:focus { outline:none; border-color:var(--orange-500); box-shadow:0 0 0 3px rgba(255,103,31,.15); }
+  .ask-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .ask-source-label { font-size:12.5px; font-weight:600; color:#8a93a3; }
+  .ask-controls select {
+    font:inherit; font-size:13px; padding:7px 10px; border-radius:8px;
+    border:1.5px solid var(--gray-200); background:#fff; color:var(--ink-900); max-width:280px;
+  }
+  .ask-spacer { flex:1; }
+  .ask-status { font-size:12.5px; color:#8a93a3; }
+  .ask-suggestions { display:flex; gap:8px; flex-wrap:wrap; }
+  .ask-chip {
+    font:inherit; font-size:12.5px; cursor:pointer; padding:6px 12px; border-radius:999px;
+    border:1px solid var(--gray-200); background:var(--gray-100); color:var(--ink-700);
+  }
+  .ask-chip:hover { border-color:var(--orange-500); color:var(--ink-900); }
+
+  .ask-answer { margin:0 0 10px; font-size:15px; line-height:1.55; color:var(--ink-900); white-space:pre-wrap; }
+  .ask-meta { font-size:12.5px; color:#8a93a3; margin-bottom:10px; }
+  .ask-meta .ask-dot { opacity:.5; }
+  .ask-confidence { font-weight:700; }
+  .ask-confidence.high { color:var(--ok); }
+  .ask-confidence.medium { color:var(--acl-orange); }
+  .ask-confidence.low { color:#c0392b; }
+  .ask-sources { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .ask-sources-label { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#8a93a3; font-weight:700; }
+  .ask-source-chip {
+    font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace; font-size:11.5px;
+    background:var(--gray-100); color:var(--navy-700); border:1px solid var(--gray-200);
+    border-radius:999px; padding:3px 10px;
+  }
+  .ask-assumptions { margin:0 0 12px; padding-left:20px; font-size:12.5px; color:#8a93a3; }
+  .ask-assumptions li { margin-bottom:3px; }
+
+  .ask-sql { border:1px solid var(--gray-200); border-radius:10px; margin-bottom:14px; }
+  .ask-sql > summary {
+    cursor:pointer; padding:10px 14px; font-size:13px; font-weight:600; color:var(--ink-700);
+    list-style:none;
+  }
+  .ask-sql > summary::-webkit-details-marker { display:none; }
+  .ask-sql > summary::before { content:"▸ "; color:#8a93a3; }
+  .ask-sql[open] > summary::before { content:"▾ "; }
+  .ask-sql-code {
+    margin:0; padding:0 14px 12px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+    font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace; font-size:12.5px;
+    line-height:1.5; color:var(--ink-900);
+  }
+  .ask-sql-actions { display:flex; gap:8px; padding:0 14px 12px; }
+  .ask-sql-actions .btn { padding:6px 12px; font-size:12.5px; }
+
   /* ---------- Admin ---------- */
   .admin-pane { text-align:left; width:99%; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
   .admin-tabs {

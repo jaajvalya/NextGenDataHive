@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from api import settings
 from api.audit import log_connection_failure, should_log_connection_path
 from api.routers import (
+    ask,
     assets,
     connectors,
     data_quality,
@@ -39,6 +40,7 @@ API_ROUTERS = (
     connectors.router,
     assets.router,
     sql.router,
+    ask.router,
     data_quality.router,
     snowflake.router,
     glossary.router,

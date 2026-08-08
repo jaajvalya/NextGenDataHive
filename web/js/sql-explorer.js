@@ -659,8 +659,31 @@
     );
   }
 
+  /** Load SQL into the editor and switch to this tab. Used by the Ask Aura tab. */
+  function openWithSql(sql, connectorId) {
+    var link = document.querySelector('nav.rail a[data-view="insights"]');
+    if (link) link.click();
+    var ta = $("#sqlEditor");
+    if (ta) ta.value = String(sql || "");
+    var sel = $("#sqlConnectorSelect");
+    if (sel && connectorId) {
+      state.connectorId = connectorId;
+      // The tab reloads its connector list asynchronously, so apply after it settles.
+      setTimeout(function () {
+        for (var i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === connectorId) {
+            sel.value = connectorId;
+            break;
+          }
+        }
+      }, 400);
+    }
+    setStatus("Query loaded from Ask Aura. Review it, then Run query.");
+  }
+
   global.DataHiveSqlExplorer = {
     init: initSqlView,
     runQuery: runQuery,
+    openWithSql: openWithSql,
   };
 })(window);

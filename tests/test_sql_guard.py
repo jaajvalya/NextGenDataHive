@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.postgres_store import _assert_readonly_sql
+from core.postgres_store import assert_readonly_sql
 
 READ_ONLY = [
     "select 1",
@@ -35,14 +35,14 @@ REJECTED = [
 
 @pytest.mark.parametrize("sql", READ_ONLY)
 def test_read_only_statements_are_allowed(sql):
-    assert _assert_readonly_sql(sql)
+    assert assert_readonly_sql(sql)
 
 
 @pytest.mark.parametrize("sql", REJECTED)
 def test_writes_and_stacked_statements_are_rejected(sql):
     with pytest.raises(ValueError):
-        _assert_readonly_sql(sql)
+        assert_readonly_sql(sql)
 
 
 def test_trailing_semicolon_is_stripped_from_the_returned_statement():
-    assert _assert_readonly_sql("select 1;") == "select 1"
+    assert assert_readonly_sql("select 1;") == "select 1"

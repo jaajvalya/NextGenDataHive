@@ -2084,7 +2084,10 @@ document.querySelectorAll("nav.rail a[data-view]").forEach((a) => {
     if (adminView) adminView.classList.toggle("hidden", view !== "admin");
     const reportingView = $("#view-reporting");
     if (reportingView) reportingView.classList.toggle("hidden", view !== "reporting");
+    const askView = $("#view-ask");
+    if (askView) askView.classList.toggle("hidden", view !== "ask");
     if (view === "assets") initAssetsView();
+    if (view === "ask" && typeof DataHiveAsk !== "undefined") DataHiveAsk.init();
     if (view === "insights" && typeof DataHiveSqlExplorer !== "undefined") {
       DataHiveSqlExplorer.init();
     }

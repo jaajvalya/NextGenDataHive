@@ -59,6 +59,7 @@
   <nav class="rail" aria-label="Primary">
     <div class="grp">
       <a href="#" class="active" data-view="assets" aria-current="page"><span class="ic" aria-hidden="true"><i data-lucide="layers"></i></span>Assets</a>
+      <a href="#" data-view="ask" id="navAsk" hidden><span class="ic" aria-hidden="true"><i data-lucide="brain-circuit"></i></span>Ask Aura</a>
       <a href="#" data-view="connectors"><span class="ic" aria-hidden="true"><i data-lucide="unplug"></i></span>Connectors</a>
       <a href="#" data-view="etl"><span class="ic" aria-hidden="true"><i data-lucide="arrow-left-right"></i></span>ETL/ELT</a>
       <a href="#" data-view="reporting"><span class="ic" aria-hidden="true"><i data-lucide="sparkles"></i></span>Insights</a>
@@ -151,6 +152,60 @@
           </div>
         </section>
       </div>
+    </div>
+
+    <div id="view-ask" class="ask-pane hidden">
+      <section class="acl-hero" aria-label="Ask Aura">
+        <div class="acl-hero-copy">
+          <h1>Ask Aura</h1>
+          <p>Ask a question in plain English. Aura picks the connector, reads the schema it needs, and runs a read-only query.</p>
+        </div>
+        <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <section class="card ask-card">
+        <div class="bd">
+          <div class="ask-composer">
+            <textarea id="askQuestion" class="ask-input" rows="2" spellcheck="false"
+                      placeholder="e.g. Which 10 customers ordered the most last quarter?"
+                      aria-label="Your question"></textarea>
+            <div class="ask-controls">
+              <label class="ask-source-label" for="askConnectorSelect">Source</label>
+              <select id="askConnectorSelect" aria-label="Restrict to one connector">
+                <option value="">Auto — pick the best source</option>
+              </select>
+              <div class="ask-spacer"></div>
+              <span class="ask-status" id="askStatus" aria-live="polite"></span>
+              <button type="button" class="btn btn-ghost" id="askPreviewBtn">Preview SQL</button>
+              <button type="button" class="btn btn-primary" id="askRunBtn">Ask</button>
+            </div>
+            <div class="ask-suggestions" id="askSuggestions"></div>
+          </div>
+        </div>
+      </section>
+
+      <div id="askError" class="err hidden" role="alert"></div>
+
+      <section class="card ask-card hidden" id="askAnswerCard" aria-live="polite">
+        <div class="hd"><h2>Answer</h2></div>
+        <div class="bd">
+          <p class="ask-answer" id="askAnswer"></p>
+          <div class="ask-meta" id="askMeta"></div>
+          <div class="ask-sources" id="askSources"></div>
+          <ul class="ask-assumptions hidden" id="askAssumptions"></ul>
+
+          <details class="ask-sql" id="askSqlBlock">
+            <summary>Generated SQL</summary>
+            <pre class="ask-sql-code" id="askSqlCode"></pre>
+            <div class="ask-sql-actions">
+              <button type="button" class="btn btn-ghost" id="askOpenSqlBtn">Open in Reporting</button>
+              <button type="button" class="btn btn-ghost" id="askCopySqlBtn">Copy SQL</button>
+            </div>
+          </details>
+
+          <div id="askResults"></div>
+        </div>
+      </section>
     </div>
 
     <div id="view-sql" class="sql-pane hidden">
@@ -1062,6 +1117,7 @@
 <script src="js/save-connector.js"></script>
 <script src="js/assets.js"></script>
 <script src="js/sql-explorer.js"></script>
+<script src="js/ask.js"></script>
 <script src="js/reporting.js"></script>
 <script src="js/app.js"></script>
 </body>
