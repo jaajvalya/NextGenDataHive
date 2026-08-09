@@ -2783,7 +2783,15 @@ function showEtlLocalUploadSelected(meta) {
     if (tgtType === "snowflake") {
       $("#etl_target_object").value = "SALES_DB.RAW." + stem;
     } else if (tgtType === "gcp") {
-      $("#etl_target_object").value = "my-project.raw_dataset." + stem.toLowerCase();
+      const project = etlGcpProjectHint(
+        ($("#etl_target_conn") && $("#etl_target_conn").value) || ""
+      );
+      $("#etl_target_object").value =
+        project + ".raw_dataset." + stem.toLowerCase();
+      if ($("#etl_target_kind")) {
+        rebuildEtlKindSelect($("#etl_target_kind"), "gcp", "target", "bigquery_table");
+        updateEtlTargetKindUi("bigquery_table");
+      }
     } else {
       $("#etl_target_object").value = stem.toLowerCase();
     }
@@ -2819,19 +2827,128 @@ function etlQuoteIdent(name, dialect) {
   return parts.map((p) => '"' + p.replace(/"/g, '""') + '"').join(".");
 }
 
-function etlDefaultObject(kind, cloudId) {
+function etlGcpProjectHint(connKey) {
+  const conn = findEtlConnection(connKey || "");
+  const project =
+    (conn && (conn.account_id || conn.dataset_scope || "")) ||
+    "my-project";
+  // dataset_scope may be "project" or "project.dataset" or a list — take first token.
+  const token = String(project).split(/[,\s;/]+/)[0] || "my-project";
+  const projectId = token.includes(".") ? token.split(".")[0] : token;
+  return projectId || "my-project";
+}
+
+/** Platform-aware object kinds for Source / Destination selectors. */
+function etlObjectKindsForPlatform(cloudId, role) {
+  const isSource = role !== "target";
+  if (cloudId === "gcp") {
+    const kinds = [
+      { value: "bigquery_table", label: "BigQuery table" },
+      { value: "gcs_uri", label: "GCS files (bucket / URI)" },
+    ];
+    if (isSource) kinds.push({ value: "local_file", label: "Local file upload" });
+    return kinds;
+  }
+  if (cloudId === "aws") {
+    const kinds = [
+      { value: "s3_uri", label: "S3 URI" },
+      { value: "object", label: "Table / object" },
+    ];
+    if (isSource) kinds.push({ value: "local_file", label: "Local file upload" });
+    return kinds;
+  }
+  if (cloudId === "azure") {
+    const kinds = [
+      { value: "adls_uri", label: "ADLS / ABFSS URI" },
+      { value: "object", label: "Table / object" },
+    ];
+    if (isSource) kinds.push({ value: "local_file", label: "Local file upload" });
+    return kinds;
+  }
+  if (cloudId === "snowflake") {
+    const kinds = [
+      { value: "object", label: "Table / view" },
+      { value: "stage_file", label: "Snowflake stage file" },
+    ];
+    if (isSource) kinds.push({ value: "local_file", label: "Local file upload" });
+    return kinds;
+  }
+  if (cloudId === "upload") {
+    return isSource
+      ? [{ value: "local_file", label: "Local file upload" }]
+      : [{ value: "object", label: "Table / object / URI" }];
+  }
+  const kinds = [{ value: "object", label: "Table / object / URI" }];
+  if (isSource) kinds.push({ value: "local_file", label: "Local file upload" });
+  return kinds;
+}
+
+function etlDefaultObject(kind, cloudId, objectKind) {
+  const role = kind === "source" ? "source" : "target";
+  const okind =
+    objectKind ||
+    (cloudId === "gcp"
+      ? "bigquery_table"
+      : cloudId === "aws"
+        ? "s3_uri"
+        : cloudId === "azure"
+          ? "adls_uri"
+          : "object");
+
+  if (okind === "bigquery_table") {
+    const project = etlGcpProjectHint(
+      role === "source"
+        ? ($("#etl_source_conn") && $("#etl_source_conn").value) || ""
+        : ($("#etl_target_conn") && $("#etl_target_conn").value) || ""
+    );
+    return role === "source"
+      ? project + ".raw_dataset.source_table"
+      : project + ".curated_dataset.target_table";
+  }
+  if (okind === "gcs_uri") {
+    return role === "source"
+      ? "gs://my-bucket/folder/data.json"
+      : "gs://my-bucket/curated/output/";
+  }
+  if (okind === "s3_uri") {
+    return role === "source"
+      ? "s3://my-bucket/raw/customers/"
+      : "s3://my-bucket/curated/customers/";
+  }
+  if (okind === "adls_uri") {
+    return role === "source"
+      ? "abfss://container@account.dfs.core.windows.net/raw/customers/"
+      : "abfss://container@account.dfs.core.windows.net/curated/customers/";
+  }
   if (kind === "source") {
-    if (cloudId === "aws") return "s3://my-bucket/raw/customers/";
-    if (cloudId === "gcp") return "gs://my-bucket/folder/data.json";
-    if (cloudId === "azure") return "abfss://container@account.dfs.core.windows.net/raw/customers/";
     if (cloudId === "snowflake") return "RAW.BRONZE.CUSTOMERS";
     return "dhpoc-bronze.test_customer_tbl";
   }
-  if (cloudId === "aws") return "s3://my-bucket/curated/customers/";
-  if (cloudId === "gcp") return "my-project.raw_dataset.flattened_table";
-  if (cloudId === "azure") return "abfss://container@account.dfs.core.windows.net/curated/customers/";
   if (cloudId === "snowflake") return "ANALYTICS.SILVER.CUSTOMERS";
+  if (cloudId === "gcp") return "my-project.curated_dataset.target_table";
   return "dhpoc-silver.dh_customer";
+}
+
+function rebuildEtlKindSelect(selectEl, cloudId, role, preferred) {
+  if (!selectEl) return;
+  const kinds = etlObjectKindsForPlatform(cloudId, role);
+  // Pass preferred="" to force the platform default; omit to keep the current value.
+  const prev = preferred !== undefined && preferred !== null ? preferred : selectEl.value;
+  selectEl.innerHTML = kinds
+    .map(
+      (k) =>
+        '<option value="' +
+        escapeHtml(k.value) +
+        '">' +
+        escapeHtml(k.label) +
+        "</option>"
+    )
+    .join("");
+  if (prev && kinds.some((k) => k.value === prev)) {
+    selectEl.value = prev;
+  } else if (kinds.length) {
+    selectEl.value = kinds[0].value;
+  }
 }
 
 function etlIsGcsUri(uri) {
@@ -4126,13 +4243,16 @@ function buildEtlScriptContext() {
       ? $("#etl_source_file").selectedOptions[0]
       : null;
   const stageFileExt = stageFileOpt ? stageFileOpt.dataset.ext || "" : "";
+  const targetKind = ($("#etl_target_kind") && $("#etl_target_kind").value) || "object";
   let sourceObject =
-    ($("#etl_source_object").value || "").trim() || etlDefaultObject("source", sourceType);
+    ($("#etl_source_object").value || "").trim() ||
+    etlDefaultObject("source", sourceType, sourceKind);
   if (sourceKind === "stage_file" && stageFqn && stageFilePath) {
     sourceObject = "@" + stageFqn.replace(/^@/, "") + "/" + stageFilePath.replace(/^\//, "");
   }
   let targetObject =
-    ($("#etl_target_object").value || "").trim() || etlDefaultObject("target", targetType);
+    ($("#etl_target_object").value || "").trim() ||
+    etlDefaultObject("target", targetType, targetKind);
   if (sourceKind === "stage_file" && !($("#etl_target_object") && $("#etl_target_object").value.trim())) {
     targetObject = "SALES_DB.RAW." + etlSuggestTableFromFile(stageFilePath || sourceObject);
   }
@@ -4161,11 +4281,22 @@ function buildEtlScriptContext() {
     sourceObject,
     targetObject,
     sourceKind,
+    targetKind,
     stageFqn: stageFqn.replace(/^@/, ""),
     stageFilePath,
     stageFileExt,
     isStageIngest,
     isLocalUpload,
+    isBigQuerySource:
+      sourceKind === "bigquery_table" ||
+      (sourceType === "gcp" &&
+        sourceKind !== "gcs_uri" &&
+        sourceKind !== "local_file" &&
+        !etlIsGcsUri(sourceObject)),
+    isGcsSource: sourceKind === "gcs_uri" || etlIsGcsUri(sourceObject),
+    isBigQueryTarget:
+      targetKind === "bigquery_table" ||
+      (targetType === "gcp" && targetKind !== "gcs_uri" && !etlIsGcsUri(targetObject)),
     localAbsolutePath: (etlLocalUpload && etlLocalUpload.absolute_path) || "",
     localFileExt: (etlLocalUpload && etlLocalUpload.ext) || etlUriFileExt(sourceObject),
     notes: ($("#etl_notes").value || "").trim(),
@@ -4180,7 +4311,7 @@ function etlSnowflakeConnectorId() {
   return (conn && conn.id) || key;
 }
 
-function updateEtlSourceKindUi() {
+function updateEtlSourceKindUi(preferredKind) {
   const sourceType = ($("#etl_source_type") && $("#etl_source_type").value) || "";
   const kindSel = $("#etl_source_kind");
   const kindWrap = $("#etl_source_kind_wrap");
@@ -4188,25 +4319,25 @@ function updateEtlSourceKindUi() {
   const fileWrap = $("#etl_stage_file_wrap");
   const localWrap = $("#etl_local_upload_wrap");
   const connWrap = $("#etl_source_conn_wrap");
+  const objectWrap = $("#etl_source_object_wrap");
   const typeField = $("#etl_source_type") && $("#etl_source_type").closest(".field");
+
+  if (kindWrap) kindWrap.classList.remove("hidden");
+  rebuildEtlKindSelect(kindSel, sourceType, "source", preferredKind);
+
   const kind = (kindSel && kindSel.value) || "object";
   const isSnowflake = sourceType === "snowflake";
   const localMode = kind === "local_file";
   const stageMode = kind === "stage_file";
+  const bqMode = kind === "bigquery_table";
+  const gcsMode = kind === "gcs_uri";
 
-  if (kindWrap) kindWrap.classList.remove("hidden");
-
-  // Stage file only makes sense for Snowflake sources.
-  if (stageMode && !isSnowflake && kindSel) {
-    // keep selection; user must pick Snowflake as source connector
-  }
   if (stageWrap) stageWrap.classList.toggle("hidden", !(stageMode && isSnowflake));
   if (fileWrap) fileWrap.classList.toggle("hidden", !(stageMode && isSnowflake));
   if (localWrap) localWrap.classList.toggle("hidden", !localMode);
   if (connWrap) connWrap.classList.toggle("hidden", localMode);
+  if (objectWrap) objectWrap.classList.toggle("hidden", localMode || (stageMode && isSnowflake));
   if (typeField) {
-    // Keep connector visible for local files so destination pairing stays clear,
-    // but auto-select File Upload when entering local mode.
     if (localMode && $("#etl_source_type") && !$("#etl_source_type").value) {
       $("#etl_source_type").value = "upload";
     }
@@ -4223,7 +4354,6 @@ function updateEtlSourceKindUi() {
     const srcConn = $("#etl_source_conn");
     if (srcConn) {
       srcConn.required = true;
-      // Restore normal connection list when leaving local-file mode.
       if (srcConn.value === "__local_file__" || srcConn.querySelector('option[value="__local_file__"]')) {
         fillEtlConnectionSelect(srcConn, sourceType, "");
       }
@@ -4236,21 +4366,45 @@ function updateEtlSourceKindUi() {
       kindHelp.textContent = "Upload a local CSV, Excel, JSON, or Parquet file as the pipeline source.";
     } else if (stageMode) {
       kindHelp.textContent = "Load a file from a Snowflake stage into a RAW table.";
-    } else {
+    } else if (bqMode) {
       kindHelp.textContent =
-        "Point at a table, BigQuery dataset.table, gs:// URI, or other connector object.";
+        "Read from a BigQuery table using project.dataset.table (full three-part name).";
+    } else if (gcsMode) {
+      kindHelp.textContent =
+        "Read files from a GCS bucket (gs://bucket/path). JSON folders are flattened.";
+    } else if (kind === "s3_uri") {
+      kindHelp.textContent = "Read from an S3 URI (s3://bucket/path).";
+    } else if (kind === "adls_uri") {
+      kindHelp.textContent = "Read from Azure Data Lake / ABFSS URI.";
+    } else {
+      kindHelp.textContent = "Point at a table, view, or connector object.";
     }
   }
 
+  const objLabel = $("#etl_source_object_label");
+  if (objLabel) {
+    if (bqMode) objLabel.textContent = "BigQuery table";
+    else if (gcsMode) objLabel.textContent = "GCS URI";
+    else if (kind === "s3_uri") objLabel.textContent = "S3 URI";
+    else if (kind === "adls_uri") objLabel.textContent = "ADLS URI";
+    else objLabel.textContent = "Source object";
+  }
+
   const help = $("#etl_source_object_help");
+  const srcInput = $("#etl_source_object");
+  const placeholder = etlDefaultObject("source", sourceType, kind);
+  if (srcInput) srcInput.placeholder = placeholder;
   if (help) {
     if (localMode) {
       help.textContent = "Filled automatically after upload (storage/uploads/…).";
     } else if (stageMode) {
       help.textContent = "Auto-filled from the selected stage file. Used in COPY INTO LOCATION.";
-    } else if (sourceType === "gcp") {
+    } else if (bqMode) {
       help.textContent =
-        "GCS JSON: gs://bucket/folder/file.json (or gs://bucket/folder/). BigQuery table: project.dataset.table.";
+        "Full name: project.dataset.table — e.g. " + placeholder + ". Both SQL and PySpark use the BigQuery dialect.";
+    } else if (gcsMode) {
+      help.textContent =
+        "Use gs://bucket/folder/file.json or gs://bucket/folder/ for a JSON landing zone.";
     } else {
       help.textContent = "Schema.table, dataset.table, or path used in the generated script.";
     }
@@ -4259,9 +4413,64 @@ function updateEtlSourceKindUi() {
     if ($("#etl_target_type") && !$("#etl_target_type").value) {
       $("#etl_target_type").value = "snowflake";
       fillEtlConnectionSelect($("#etl_target_conn"), "snowflake", $("#etl_source_conn").value);
+      updateEtlTargetKindUi();
     }
     if ($("#etl_target_conn") && !$("#etl_target_conn").value && $("#etl_source_conn").value) {
       $("#etl_target_conn").value = $("#etl_source_conn").value;
+    }
+  }
+  // When GCP BigQuery is the source and destination is empty, default to BigQuery too.
+  if (bqMode && sourceType === "gcp" && $("#etl_target_type") && !$("#etl_target_type").value) {
+    $("#etl_target_type").value = "gcp";
+    fillEtlConnectionSelect($("#etl_target_conn"), "gcp", $("#etl_source_conn").value);
+    updateEtlTargetKindUi("bigquery_table");
+  }
+}
+
+function updateEtlTargetKindUi(preferredKind) {
+  const targetType = ($("#etl_target_type") && $("#etl_target_type").value) || "";
+  const kindSel = $("#etl_target_kind");
+  const kindWrap = $("#etl_target_kind_wrap");
+  if (kindWrap) kindWrap.classList.toggle("hidden", !targetType);
+  rebuildEtlKindSelect(kindSel, targetType, "target", preferredKind);
+  const kind = (kindSel && kindSel.value) || "object";
+
+  const kindHelp = $("#etl_target_kind_help");
+  if (kindHelp) {
+    if (kind === "bigquery_table") {
+      kindHelp.textContent = "Write to a BigQuery table (project.dataset.table).";
+    } else if (kind === "gcs_uri") {
+      kindHelp.textContent = "Write files to a GCS bucket (gs://bucket/path/).";
+    } else if (kind === "s3_uri") {
+      kindHelp.textContent = "Write to an S3 URI.";
+    } else if (kind === "adls_uri") {
+      kindHelp.textContent = "Write to Azure Data Lake / ABFSS.";
+    } else {
+      kindHelp.textContent = "Destination table, view, or URI for the selected connector.";
+    }
+  }
+
+  const objLabel = $("#etl_target_object_label");
+  if (objLabel) {
+    if (kind === "bigquery_table") objLabel.textContent = "BigQuery table";
+    else if (kind === "gcs_uri") objLabel.textContent = "GCS URI";
+    else if (kind === "s3_uri") objLabel.textContent = "S3 URI";
+    else if (kind === "adls_uri") objLabel.textContent = "ADLS URI";
+    else objLabel.textContent = "Destination object";
+  }
+
+  const tgtInput = $("#etl_target_object");
+  const help = $("#etl_target_object_help");
+  const placeholder = etlDefaultObject("target", targetType, kind);
+  if (tgtInput) tgtInput.placeholder = placeholder;
+  if (help) {
+    if (kind === "bigquery_table") {
+      help.textContent = "Full name: project.dataset.table — e.g. " + placeholder + ".";
+    } else if (kind === "gcs_uri") {
+      help.textContent = "Destination prefix or file, e.g. " + placeholder + ".";
+    } else {
+      help.textContent =
+        "Destination table or path. Stage loads default to SALES_DB.RAW.<FILE_TABLE>.";
     }
   }
 }
@@ -4534,6 +4743,50 @@ function generateEtlTransformationScript() {
     }
     if (!ctx.stageFilePath) {
       showEtlError("Select a stage file to generate DDL and COPY INTO.");
+      return null;
+    }
+  }
+  if (ctx.sourceKind === "bigquery_table") {
+    if (ctx.sourceType !== "gcp") {
+      showEtlError("BigQuery table source requires Source connector = Google Cloud Platform.");
+      return null;
+    }
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(ctx.sourceObject)) {
+      showEtlError(
+        "Enter a BigQuery table as project.dataset.table (three parts)."
+      );
+      return null;
+    }
+  }
+  if (ctx.sourceKind === "gcs_uri") {
+    if (ctx.sourceType !== "gcp") {
+      showEtlError("GCS URI source requires Source connector = Google Cloud Platform.");
+      return null;
+    }
+    if (!etlIsGcsUri(ctx.sourceObject)) {
+      showEtlError("Enter a GCS URI starting with gs://…");
+      return null;
+    }
+  }
+  if (ctx.targetKind === "bigquery_table") {
+    if (ctx.targetType !== "gcp") {
+      showEtlError("BigQuery table destination requires Target connector = Google Cloud Platform.");
+      return null;
+    }
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(ctx.targetObject)) {
+      showEtlError(
+        "Enter the destination BigQuery table as project.dataset.table."
+      );
+      return null;
+    }
+  }
+  if (ctx.targetKind === "gcs_uri") {
+    if (ctx.targetType !== "gcp") {
+      showEtlError("GCS URI destination requires Target connector = Google Cloud Platform.");
+      return null;
+    }
+    if (!etlIsGcsUri(ctx.targetObject)) {
+      showEtlError("Enter a destination GCS URI starting with gs://…");
       return null;
     }
   }
@@ -4858,18 +5111,22 @@ function bindEtlEvents() {
 
   $("#etl_source_type").addEventListener("change", (e) => {
     fillEtlConnectionSelect($("#etl_source_conn"), e.target.value, "");
-    if ($("#etl_source_object") && !$("#etl_source_object").value) {
-      $("#etl_source_object").placeholder = etlDefaultObject("source", e.target.value);
+    // Reset kind options for the new platform (e.g. GCP → BigQuery + GCS).
+    updateEtlSourceKindUi("");
+    if ($("#etl_source_object") && !$("#etl_source_object").value.trim()) {
+      const sk = ($("#etl_source_kind") && $("#etl_source_kind").value) || "object";
+      $("#etl_source_object").placeholder = etlDefaultObject("source", e.target.value, sk);
     }
-    updateEtlSourceKindUi();
     if (e.target.value === "snowflake" && $("#etl_source_kind") && $("#etl_source_kind").value === "stage_file") {
       loadEtlSnowflakeStages();
     }
   });
   $("#etl_target_type").addEventListener("change", (e) => {
     fillEtlConnectionSelect($("#etl_target_conn"), e.target.value, "");
-    if ($("#etl_target_object") && !$("#etl_target_object").value) {
-      $("#etl_target_object").placeholder = etlDefaultObject("target", e.target.value);
+    updateEtlTargetKindUi("");
+    if ($("#etl_target_object") && !$("#etl_target_object").value.trim()) {
+      const tk = ($("#etl_target_kind") && $("#etl_target_kind").value) || "object";
+      $("#etl_target_object").placeholder = etlDefaultObject("target", e.target.value, tk);
     }
   });
 
@@ -4878,9 +5135,9 @@ function bindEtlEvents() {
   const sourceKind = $("#etl_source_kind");
   if (sourceKind) {
     sourceKind.addEventListener("change", () => {
-      updateEtlSourceKindUi();
+      const sk = sourceKind.value;
       const langHelp = $("#etl_language_help");
-      if (sourceKind.value === "local_file") {
+      if (sk === "local_file") {
         if ($("#etl_source_type") && !$("#etl_source_type").value) {
           $("#etl_source_type").value = "upload";
         }
@@ -4891,11 +5148,10 @@ function bindEtlEvents() {
           langHelp.textContent =
             "Local uploads use Python to load (JSON is flattened to tabular columns).";
         }
-      } else if (sourceKind.value === "stage_file") {
+      } else if (sk === "stage_file") {
         if ($("#etl_source_type")) $("#etl_source_type").value = "snowflake";
         fillEtlConnectionSelect($("#etl_source_conn"), "snowflake", "");
         loadEtlSnowflakeStages();
-        // Stage landing is native Snowflake COPY — default away from PySpark.
         if ($("#etl_language") && $("#etl_language").value === "pyspark") {
           $("#etl_language").value = "sql";
         }
@@ -4903,9 +5159,56 @@ function bindEtlEvents() {
           langHelp.textContent =
             "Stage → RAW always generates Snowflake DDL + COPY INTO. PySpark is not used.";
         }
+      } else if (sk === "bigquery_table") {
+        if ($("#etl_source_type") && $("#etl_source_type").value !== "gcp") {
+          $("#etl_source_type").value = "gcp";
+          fillEtlConnectionSelect($("#etl_source_conn"), "gcp", "");
+        }
+        if (langHelp) {
+          langHelp.textContent =
+            "BigQuery table sources use the BigQuery SQL dialect (or PySpark bigquery format).";
+        }
+      } else if (sk === "gcs_uri") {
+        if ($("#etl_source_type") && $("#etl_source_type").value !== "gcp") {
+          $("#etl_source_type").value = "gcp";
+          fillEtlConnectionSelect($("#etl_source_conn"), "gcp", "");
+        }
+        if ($("#etl_language") && $("#etl_language").value === "sql") {
+          $("#etl_language").value = "python";
+        }
+        if (langHelp) {
+          langHelp.textContent =
+            "GCS gs://… JSON sources are flattened with Python (recommended) or PySpark.";
+        }
       } else if (langHelp) {
         langHelp.textContent =
-          "Snowflake stage → COPY INTO. GCS gs://…json or local upload → flatten nested JSON (Python recommended).";
+          "Snowflake stage → COPY INTO. BigQuery table → BQ SQL. GCS / local upload → flatten with Python.";
+      }
+      updateEtlSourceKindUi(sk);
+      const srcType = ($("#etl_source_type") && $("#etl_source_type").value) || "";
+      if ($("#etl_source_object") && !$("#etl_source_object").value.trim()) {
+        $("#etl_source_object").placeholder = etlDefaultObject("source", srcType, sk);
+      }
+    });
+  }
+  const targetKind = $("#etl_target_kind");
+  if (targetKind) {
+    targetKind.addEventListener("change", () => {
+      const tk = targetKind.value;
+      const tgtType = ($("#etl_target_type") && $("#etl_target_type").value) || "";
+      if ((tk === "bigquery_table" || tk === "gcs_uri") && tgtType !== "gcp") {
+        if ($("#etl_target_type")) {
+          $("#etl_target_type").value = "gcp";
+          fillEtlConnectionSelect($("#etl_target_conn"), "gcp", "");
+        }
+      }
+      updateEtlTargetKindUi(tk);
+      if ($("#etl_target_object") && !$("#etl_target_object").value.trim()) {
+        $("#etl_target_object").placeholder = etlDefaultObject(
+          "target",
+          ($("#etl_target_type") && $("#etl_target_type").value) || "",
+          tk
+        );
       }
     });
   }
@@ -4990,11 +5293,22 @@ function bindEtlEvents() {
     if ($("#etl_source_kind") && $("#etl_source_kind").value === "stage_file") {
       loadEtlSnowflakeStages();
     }
+    // Refresh BigQuery placeholders with the connector's project id when possible.
+    const sk = ($("#etl_source_kind") && $("#etl_source_kind").value) || "";
+    if (sk === "bigquery_table" && $("#etl_source_object") && !$("#etl_source_object").value.trim()) {
+      $("#etl_source_object").placeholder = etlDefaultObject("source", "gcp", "bigquery_table");
+    }
   });
   $("#etl_target_conn").addEventListener("change", (e) => {
     if (e.target.value === "__configure__") {
       e.target.value = "";
       document.querySelector('nav.rail a[data-view="connectors"]').click();
+      return;
+    }
+    updateEtlTargetKindUi();
+    const tk = ($("#etl_target_kind") && $("#etl_target_kind").value) || "";
+    if (tk === "bigquery_table" && $("#etl_target_object") && !$("#etl_target_object").value.trim()) {
+      $("#etl_target_object").placeholder = etlDefaultObject("target", "gcp", "bigquery_table");
     }
   });
 
@@ -5115,6 +5429,7 @@ function bindEtlEvents() {
       source_object: resolvedSourceObject,
       target_object: targetObject,
       source_kind: sourceKindVal,
+      target_kind: ($("#etl_target_kind") && $("#etl_target_kind").value) || "object",
       language,
       script,
       notes,
@@ -5143,6 +5458,20 @@ function bindEtlEvents() {
         $("#etl_target_type").value = p.target_type || "";
         fillEtlConnectionSelect($("#etl_target_conn"), p.target_type || "", p.target_conn_id || "");
       }
+      rebuildEtlKindSelect(
+        $("#etl_source_kind"),
+        p.source_type || "",
+        "source",
+        p.source_kind || ""
+      );
+      rebuildEtlKindSelect(
+        $("#etl_target_kind"),
+        p.target_type || "",
+        "target",
+        p.target_kind || ""
+      );
+      updateEtlSourceKindUi();
+      updateEtlTargetKindUi(p.target_kind || "");
       if ($("#etl_source_object")) $("#etl_source_object").value = p.source_object || "";
       if ($("#etl_target_object")) $("#etl_target_object").value = p.target_object || "";
       if ($("#etl_notes")) $("#etl_notes").value = p.notes || "";
@@ -5180,6 +5509,7 @@ async function initEtlView() {
   bindEtlEvents();
   await refreshEtlConnections();
   updateEtlSourceKindUi();
+  updateEtlTargetKindUi();
   renderEtlPipelines();
 }
 

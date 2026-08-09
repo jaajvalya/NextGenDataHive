@@ -317,10 +317,14 @@
                   <label for="etl_source_kind">Source kind</label>
                   <select id="etl_source_kind">
                     <option value="object">Table / object / URI</option>
+                    <option value="bigquery_table">BigQuery table</option>
+                    <option value="gcs_uri">GCS files (bucket / URI)</option>
+                    <option value="s3_uri">S3 URI</option>
+                    <option value="adls_uri">ADLS / ABFSS URI</option>
                     <option value="local_file">Local file upload</option>
                     <option value="stage_file">Snowflake stage file</option>
                   </select>
-                  <div class="help" id="etl_source_kind_help">Upload a local CSV/JSON/Parquet, point at a table/URI, or load from a Snowflake stage.</div>
+                  <div class="help" id="etl_source_kind_help">Options update for the selected connector (e.g. GCP offers BigQuery tables and GCS files).</div>
                 </div>
                 <div class="field hidden" id="etl_local_upload_wrap">
                   <label>Local file <span class="req">*</span></label>
@@ -359,9 +363,9 @@
                   <div class="help">Files listed from the selected stage (CSV / JSON / Parquet). Nested JSON is flattened into tabular RAW columns.</div>
                 </div>
                 <div class="field" style="margin-bottom:0" id="etl_source_object_wrap">
-                  <label for="etl_source_object">Source object</label>
-                  <input id="etl_source_object" maxlength="512" placeholder="e.g. gs://bucket/folder/file.json or bronze.customers" />
-                  <div class="help" id="etl_source_object_help">For GCP files use gs://bucket/folder/file.json. Also supports schema.table, stage path, or other connector objects.</div>
+                  <label for="etl_source_object" id="etl_source_object_label">Source object</label>
+                  <input id="etl_source_object" maxlength="512" placeholder="e.g. project.dataset.table or gs://bucket/folder/file.json" />
+                  <div class="help" id="etl_source_object_help">Pick a source kind above. GCP supports BigQuery tables (project.dataset.table) and GCS files (gs://…).</div>
                 </div>
               </div>
 
@@ -382,10 +386,21 @@
                   </select>
                   <div class="help">Saved connections for the selected target connector.</div>
                 </div>
+                <div class="field" id="etl_target_kind_wrap">
+                  <label for="etl_target_kind">Destination kind</label>
+                  <select id="etl_target_kind">
+                    <option value="object">Table / object / URI</option>
+                    <option value="bigquery_table">BigQuery table</option>
+                    <option value="gcs_uri">GCS files (bucket / URI)</option>
+                    <option value="s3_uri">S3 URI</option>
+                    <option value="adls_uri">ADLS / ABFSS URI</option>
+                  </select>
+                  <div class="help" id="etl_target_kind_help">Options update for the selected destination connector.</div>
+                </div>
                 <div class="field" style="margin-bottom:0">
-                  <label for="etl_target_object">Destination object</label>
-                  <input id="etl_target_object" maxlength="256" placeholder="e.g. SALES_DB.RAW.CUSTOMERS" />
-                  <div class="help">For stage loads, defaults to SALES_DB.RAW.&lt;FILE_TABLE&gt;.</div>
+                  <label for="etl_target_object" id="etl_target_object_label">Destination object</label>
+                  <input id="etl_target_object" maxlength="256" placeholder="e.g. project.dataset.table or SALES_DB.RAW.CUSTOMERS" />
+                  <div class="help" id="etl_target_object_help">For GCP use a BigQuery table (project.dataset.table) or a gs:// URI.</div>
                 </div>
               </div>
             </div>
