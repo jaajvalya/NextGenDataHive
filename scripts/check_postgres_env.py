@@ -23,7 +23,7 @@ def main() -> int:
         print("Connection failed:", str(exc).splitlines()[0])
         print()
         print("Fix: set POSTGRES_USER / POSTGRES_PASSWORD in .env to match your")
-        print("PostgreSQL server, or set POSTGRES_CONNINFO. See .env.example.")
+        print("PostgreSQL server, or set POSTGRES_CONNINFO.")
         return 1
     schemas = ps.list_schemas()
     print("Connected OK. Asset schemas:", schemas)

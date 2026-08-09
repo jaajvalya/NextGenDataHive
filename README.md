@@ -70,9 +70,10 @@ tests/                   unit tests (no database required)
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"     # drop [dev] to skip linter and tests
-
-cp .env.example .env                  # then fill in Mongo + Postgres credentials
 ```
+
+Create or edit the repo-root `.env` (git-ignored) with Mongo, Postgres, and
+optional Ask Aura settings. The file itself documents each variable.
 
 The editable install puts `api` and `core` on the import path, so the app and
 the tests run from any directory. On-prem database drivers are optional extras —
