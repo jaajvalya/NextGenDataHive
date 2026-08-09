@@ -24,6 +24,7 @@ EXPECTED_ROUTES = {
     ("PUT", "/api/connectors/{connector_id}"),
     ("DELETE", "/api/connectors/{connector_id}"),
     ("GET", "/api/connectors/{connector_id}/auth-ready"),
+    ("GET", "/api/connectors/{connector_id}/runtime-env"),
     # assets
     ("GET", "/api/assets/connectors"),
     ("GET", "/api/assets/catalog"),

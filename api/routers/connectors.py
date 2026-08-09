@@ -281,6 +281,45 @@ def connector_auth_ready(connector_id: str) -> dict[str, Any]:
     }
 
 
+@router.get("/api/connectors/{connector_id}/runtime-env")
+def connector_runtime_env(request: Request, connector_id: str) -> dict[str, Any]:
+    """
+    Resolve saved connector credentials into env vars / temp file contents
+    for ETL script execution. Generated scripts call this at runtime using the
+    selected connector id — secrets are not embedded in the script text.
+    """
+    from core.connector_runtime import runtime_env_for_connector
+
+    user = resolve_user(request)
+    try:
+        payload = runtime_env_for_connector(connector_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        mongo_store.log_connection_event(
+            user,
+            "Connector runtime-env issued for ETL script",
+            outcome="success",
+            event="connection.runtime_env",
+            context={
+                "connector_id": connector_id,
+                "cloud": payload.get("cloud"),
+                "display_name": payload.get("display_name"),
+                "auth_type": payload.get("auth_type"),
+                "env_keys": sorted((payload.get("env") or {}).keys()),
+                "file_keys": sorted((payload.get("files") or {}).keys()),
+            },
+        )
+    except RuntimeError:
+        pass
+    return payload
+
+
 @router.post("/api/connectors/upload")
 async def save_connector_upload(
     file: UploadFile = File(...),

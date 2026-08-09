@@ -3326,16 +3326,20 @@ function generateGcsJsonFlattenSql(ctx) {
 function generateGcsJsonFlattenPython(ctx) {
   const src = String(ctx.sourceObject || "").trim();
   const tgt = String(ctx.targetObject || "").trim() || "my-project.raw_dataset.flattened_table";
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
+  const io =
+    typeof etlPythonCloudIoLines === "function" ? etlPythonCloudIoLines() : [];
   return [
     '"""DataHive generated GCS nested-JSON flatten → tabular table.',
     "Pipeline : " + ctx.name,
     "Source  : " + src,
     "Target  : " + tgt,
     "",
-    "Downloads JSON from a GCS bucket/folder, flattens nested objects/arrays",
-    "with pandas.json_normalize, then writes a wide tabular table.",
-    "",
-    "Auth: GOOGLE_APPLICATION_CREDENTIALS or gcloud ADC from your GCP connector.",
+    "Auth: loads the selected GCP (and target) connector via",
+    "      GET /api/connectors/{id}/runtime-env (service account / OAuth).",
     '"""',
     "from __future__ import annotations",
     "",
@@ -3352,165 +3356,108 @@ function generateGcsJsonFlattenPython(ctx) {
     "",
     "SOURCE_URI = " + JSON.stringify(src),
     "TARGET_OBJECT = " + JSON.stringify(tgt),
-    "TARGET_CONNECTOR = " + JSON.stringify(ctx.targetType || "gcp"),
     "",
-    "",
-    "def parse_gs_uri(uri: str) -> tuple[str, str]:",
-    "    m = re.match(r\"^gs://([^/]+)/?(.*)$\", uri.strip())",
-    "    if not m:",
-    "        raise ValueError(f\"Expected gs://bucket/path, got: {uri}\")",
-    "    return m.group(1), m.group(2)",
-    "",
-    "",
-    "def _as_records(payload: Any) -> list[dict[str, Any]]:",
-    "    if payload is None:",
-    "        return []",
-    "    if isinstance(payload, list):",
-    "        return [x if isinstance(x, dict) else {\"value\": x} for x in payload]",
-    "    if isinstance(payload, dict):",
-    "        for key in (\"data\", \"records\", \"items\", \"results\", \"rows\"):",
-    "            if isinstance(payload.get(key), list):",
-    "                return _as_records(payload[key])",
-    "        return [payload]",
-    "    return [{\"value\": payload}]",
-    "",
-    "",
-    "def flatten_records(records: list[dict[str, Any]], source_file: str) -> pd.DataFrame:",
-    "    if not records:",
-    "        return pd.DataFrame()",
-    "    df = pd.json_normalize(records, sep=\"__\")",
-    "    for col in list(df.columns):",
-    "        sample = df[col]",
-    "        if sample.map(lambda v: isinstance(v, (list, dict))).any():",
-    "            df[col] = sample.map(",
-    "                lambda v: json.dumps(v, ensure_ascii=False)",
-    "                if isinstance(v, (list, dict))",
-    "                else v",
-    "            )",
-    "    df.columns = [",
-    "        re.sub(r\"[^A-Za-z0-9_]+\", \"_\", str(c)).strip(\"_\").upper()",
-    "        for c in df.columns",
-    "    ]",
-    "    df[\"_DH_INGESTED_AT\"] = datetime.now(timezone.utc).isoformat()",
-    "    df[\"_DH_SOURCE_FILE\"] = source_file",
-    "    return df",
-    "",
-    "",
-    "def list_gcs_json_blobs(client: storage.Client, bucket_name: str, prefix: str):",
-    "    bucket = client.bucket(bucket_name)",
-    "    if prefix and not prefix.endswith(\"/\") and \".\" in Path(prefix).name:",
-    "        blob = bucket.blob(prefix)",
-    "        if not blob.exists(client):",
-    "            raise FileNotFoundError(f\"gs://{bucket_name}/{prefix} not found\")",
-    "        return [blob]",
-    "    blobs = [",
-    "        b",
-    "        for b in client.list_blobs(bucket_name, prefix=prefix or None)",
-    "        if not b.name.endswith(\"/\")",
-    "        and re.search(r\"\\.(json|jsonl|ndjson)(\\.(gz))?$\", b.name, re.I)",
-    "    ]",
-    "    if not blobs:",
-    "        raise FileNotFoundError(",
-    "            f\"No JSON files under gs://{bucket_name}/{prefix}\"",
-    "        )",
-    "    return blobs",
-    "",
-    "",
-    "def load_records_from_gcs() -> tuple[list[dict[str, Any]], str]:",
-    "    bucket_name, prefix = parse_gs_uri(SOURCE_URI)",
-    "    client = storage.Client()  # uses ADC / GOOGLE_APPLICATION_CREDENTIALS",
-    "    blobs = list_gcs_json_blobs(client, bucket_name, prefix)",
-    "    records: list[dict[str, Any]] = []",
-    "    sources: list[str] = []",
-    "    with tempfile.TemporaryDirectory(prefix=\"datahive_gcs_\") as tmp:",
-    "        for blob in blobs:",
-    "            local = Path(tmp) / Path(blob.name).name",
-    "            blob.download_to_filename(local.as_posix())",
-    "            text = local.read_text(encoding=\"utf-8\").strip()",
-    "            if not text:",
-    "                continue",
-    "            sources.append(f\"gs://{bucket_name}/{blob.name}\")",
-    "            if \"\\n\" in text and not text.lstrip().startswith(\"[\"):",
-    "                for line in text.splitlines():",
-    "                    line = line.strip()",
-    "                    if line:",
-    "                        records.extend(_as_records(json.loads(line)))",
-    "            else:",
-    "                records.extend(_as_records(json.loads(text)))",
-    "    return records, \";\".join(sources[:5]) + (\"…\" if len(sources) > 5 else \"\")",
-    "",
-    "",
-    "def write_target(df: pd.DataFrame) -> None:",
-    "    if TARGET_CONNECTOR in {\"gcp\", \"googlecloud\"} or re.match(",
-    "        r\"^[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+$\", TARGET_OBJECT",
-    "    ):",
-    "        # project.dataset.table",
-    "        import pandas_gbq",
-    "",
-    "        project, dataset, table = TARGET_OBJECT.split(\".\", 2)",
-    "        pandas_gbq.to_gbq(",
-    "            df,",
-    "            destination_table=f\"{dataset}.{table}\",",
-    "            project_id=project,",
-    "            if_exists=\"replace\",",
-    "        )",
-    "        print(f\"Wrote {len(df)} rows to BigQuery {TARGET_OBJECT}\")",
-    "        return",
-    "    if TARGET_CONNECTOR == \"snowflake\" or TARGET_OBJECT.upper().startswith(\"SALES_DB.\"):",
-    "        import snowflake.connector",
-    "        from snowflake.connector.pandas_tools import write_pandas",
-    "",
-    "        parts = TARGET_OBJECT.split(\".\")",
-    "        database = parts[0] if len(parts) >= 3 else \"SALES_DB\"",
-    "        schema = parts[-2] if len(parts) >= 2 else \"RAW\"",
-    "        table = parts[-1]",
-    "        conn = snowflake.connector.connect(",
-    "            account=os.environ.get(\"SNOWFLAKE_ACCOUNT\", \"...\"),",
-    "            user=os.environ.get(\"SNOWFLAKE_USER\", \"...\"),",
-    "            password=os.environ.get(\"SNOWFLAKE_PASSWORD\", \"...\"),",
-    "            warehouse=os.environ.get(\"SNOWFLAKE_WAREHOUSE\", \"DEV_WH\"),",
-    "            database=database,",
-    "            schema=schema,",
-    "        )",
-    "        try:",
-    "            write_pandas(",
-    "                conn, df, table_name=table, database=database, schema=schema,",
-    "                auto_create_table=True, overwrite=True, quote_identifiers=False,",
-    "            )",
-    "            print(f\"Wrote {len(df)} rows to Snowflake {database}.{schema}.{table}\")",
-    "        finally:",
-    "            conn.close()",
-    "        return",
-    "    if TARGET_OBJECT.startswith(\"gs://\"):",
-    "        # Write flattened parquet next to / under the target GCS prefix",
-    "        out = TARGET_OBJECT.rstrip(\"/\") + \"/flattened.parquet\"",
-    "        bucket_name, prefix = parse_gs_uri(out)",
-    "        with tempfile.TemporaryDirectory(prefix=\"datahive_out_\") as tmp:",
-    "            local = Path(tmp) / \"flattened.parquet\"",
-    "            df.to_parquet(local, index=False)",
-    "            storage.Client().bucket(bucket_name).blob(prefix).upload_from_filename(",
-    "                local.as_posix()",
-    "            )",
-    "        print(f\"Wrote {len(df)} rows to {out}\")",
-    "        return",
-    "    raise NotImplementedError(",
-    "        f\"Wire write path for target={TARGET_OBJECT!r} connector={TARGET_CONNECTOR!r}\"",
-    "    )",
-    "",
-    "",
-    "def main() -> None:",
-    "    records, source_file = load_records_from_gcs()",
-    "    df = flatten_records(records, source_file)",
-    "    if df.empty:",
-    "        raise SystemExit(\"No JSON records found to flatten under \" + SOURCE_URI)",
-    "    print(f\"Flattened {len(records)} JSON docs → {len(df)} tabular rows\")",
-    "    write_target(df)",
-    "",
-    "",
-    'if __name__ == "__main__":',
-    "    main()",
-    "",
-  ].join("\n");
+  ]
+    .concat(boot)
+    .concat(io)
+    .concat([
+      "",
+      "def parse_gs_uri(uri: str) -> tuple[str, str]:",
+      "    return _parse_gs_uri(uri)",
+      "",
+      "",
+      "def _as_records(payload: Any) -> list[dict[str, Any]]:",
+      "    if payload is None:",
+      "        return []",
+      "    if isinstance(payload, list):",
+      "        return [x if isinstance(x, dict) else {\"value\": x} for x in payload]",
+      "    if isinstance(payload, dict):",
+      "        for key in (\"data\", \"records\", \"items\", \"results\", \"rows\"):",
+      "            if isinstance(payload.get(key), list):",
+      "                return _as_records(payload[key])",
+      "        return [payload]",
+      "    return [{\"value\": payload}]",
+      "",
+      "",
+      "def flatten_records(records: list[dict[str, Any]], source_file: str) -> pd.DataFrame:",
+      "    if not records:",
+      "        return pd.DataFrame()",
+      "    df = pd.json_normalize(records, sep=\"__\")",
+      "    for col in list(df.columns):",
+      "        sample = df[col]",
+      "        if sample.map(lambda v: isinstance(v, (list, dict))).any():",
+      "            df[col] = sample.map(",
+      "                lambda v: json.dumps(v, ensure_ascii=False)",
+      "                if isinstance(v, (list, dict))",
+      "                else v",
+      "            )",
+      "    df.columns = [",
+      "        re.sub(r\"[^A-Za-z0-9_]+\", \"_\", str(c)).strip(\"_\").upper()",
+      "        for c in df.columns",
+      "    ]",
+      "    df[\"_DH_INGESTED_AT\"] = datetime.now(timezone.utc).isoformat()",
+      "    df[\"_DH_SOURCE_FILE\"] = source_file",
+      "    return df",
+      "",
+      "",
+      "def list_gcs_json_blobs(client: storage.Client, bucket_name: str, prefix: str):",
+      "    if prefix and not prefix.endswith(\"/\") and \".\" in Path(prefix).name:",
+      "        blob = client.bucket(bucket_name).blob(prefix)",
+      "        if not blob.exists(client):",
+      "            raise FileNotFoundError(f\"gs://{bucket_name}/{prefix} not found\")",
+      "        return [blob]",
+      "    blobs = [",
+      "        b",
+      "        for b in client.list_blobs(bucket_name, prefix=prefix or None)",
+      "        if not b.name.endswith(\"/\")",
+      "        and re.search(r\"\\.(json|jsonl|ndjson)(\\.(gz))?$\", b.name, re.I)",
+      "    ]",
+      "    if not blobs:",
+      "        raise FileNotFoundError(",
+      "            f\"No JSON files under gs://{bucket_name}/{prefix}\"",
+      "        )",
+      "    return blobs",
+      "",
+      "",
+      "def load_records_from_gcs() -> tuple[list[dict[str, Any]], str]:",
+      "    ensure_gcp_credentials(SOURCE_CONNECTOR_ID)",
+      "    bucket_name, prefix = parse_gs_uri(SOURCE_URI)",
+      "    client = storage.Client()",
+      "    blobs = list_gcs_json_blobs(client, bucket_name, prefix)",
+      "    records: list[dict[str, Any]] = []",
+      "    sources: list[str] = []",
+      "    with tempfile.TemporaryDirectory(prefix=\"datahive_gcs_\") as tmp:",
+      "        for blob in blobs:",
+      "            local = Path(tmp) / Path(blob.name).name",
+      "            blob.download_to_filename(local.as_posix())",
+      "            text = local.read_text(encoding=\"utf-8\").strip()",
+      "            if not text:",
+      "                continue",
+      "            sources.append(f\"gs://{bucket_name}/{blob.name}\")",
+      "            if \"\\n\" in text and not text.lstrip().startswith(\"[\"):",
+      "                for line in text.splitlines():",
+      "                    line = line.strip()",
+      "                    if line:",
+      "                        records.extend(_as_records(json.loads(line)))",
+      "            else:",
+      "                records.extend(_as_records(json.loads(text)))",
+      "    return records, \";\".join(sources[:5]) + (\"…\" if len(sources) > 5 else \"\")",
+      "",
+      "",
+      "def main() -> None:",
+      "    records, source_file = load_records_from_gcs()",
+      "    df = flatten_records(records, source_file)",
+      "    if df.empty:",
+      "        raise SystemExit(\"No JSON records found to flatten under \" + SOURCE_URI)",
+      "    print(f\"Flattened {len(records)} JSON docs → {len(df)} tabular rows\")",
+      "    write_cloud_target(df, TARGET_OBJECT, TARGET_CONNECTOR, TARGET_CONNECTOR_ID)",
+      "",
+      "",
+      'if __name__ == "__main__":',
+      "    main()",
+      "",
+    ])
+    .join("\n");
 }
 
 function generateLocalFileEtlPython(ctx) {
@@ -3519,6 +3466,12 @@ function generateLocalFileEtlPython(ctx) {
   const tgt = String(ctx.targetObject || "").trim() || "SALES_DB.RAW.LOCAL_FILE";
   const ext = etlUriFileExt(src) || (etlLocalUpload && etlLocalUpload.ext) || "";
   const isJson = etlIsJsonFileExt(ext);
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
+  const io =
+    typeof etlPythonCloudIoLines === "function" ? etlPythonCloudIoLines() : [];
   return [
     '"""DataHive generated local-file → tabular load.',
     "Pipeline : " + ctx.name,
@@ -3528,6 +3481,7 @@ function generateLocalFileEtlPython(ctx) {
     isJson
       ? "JSON/JSONL is flattened with pandas.json_normalize (nested → columns)."
       : "Tabular file is loaded with pandas, then written to the destination.",
+    "Auth: destination uses the selected connector via /api/connectors/{id}/runtime-env.",
     '"""',
     "from __future__ import annotations",
     "",
@@ -3543,8 +3497,11 @@ function generateLocalFileEtlPython(ctx) {
     "SOURCE_RELATIVE = " + JSON.stringify(src),
     "SOURCE_ABSOLUTE = " + JSON.stringify(abs),
     "TARGET_OBJECT = " + JSON.stringify(tgt),
-    "TARGET_CONNECTOR = " + JSON.stringify(ctx.targetType || ""),
     "",
+  ]
+    .concat(boot)
+    .concat(io)
+    .concat([
     "",
     "def resolve_source_path() -> Path:",
     "    candidates = []",
@@ -3623,94 +3580,19 @@ function generateLocalFileEtlPython(ctx) {
     "    return df",
     "",
     "",
-    "def write_target(df: pd.DataFrame) -> None:",
-    "    if TARGET_CONNECTOR in {\"gcp\", \"googlecloud\"} or re.match(",
-    "        r\"^[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+$\", TARGET_OBJECT",
-    "    ):",
-    "        import pandas_gbq",
-    "",
-    "        project, dataset, table = TARGET_OBJECT.split(\".\", 2)",
-    "        pandas_gbq.to_gbq(",
-    "            df,",
-    "            destination_table=f\"{dataset}.{table}\",",
-    "            project_id=project,",
-    "            if_exists=\"replace\",",
-    "        )",
-    "        print(f\"Wrote {len(df)} rows to BigQuery {TARGET_OBJECT}\")",
-    "        return",
-    "    if TARGET_CONNECTOR == \"snowflake\" or \".\" in TARGET_OBJECT:",
-    "        import snowflake.connector",
-    "        from snowflake.connector.pandas_tools import write_pandas",
-    "",
-    "        parts = TARGET_OBJECT.split(\".\")",
-    "        database = parts[0] if len(parts) >= 3 else \"SALES_DB\"",
-    "        schema = parts[-2] if len(parts) >= 2 else \"RAW\"",
-    "        table = parts[-1]",
-    "        conn = snowflake.connector.connect(",
-    "            account=os.environ.get(\"SNOWFLAKE_ACCOUNT\", \"...\"),",
-    "            user=os.environ.get(\"SNOWFLAKE_USER\", \"...\"),",
-    "            password=os.environ.get(\"SNOWFLAKE_PASSWORD\", \"...\"),",
-    "            warehouse=os.environ.get(\"SNOWFLAKE_WAREHOUSE\", \"DEV_WH\"),",
-    "            database=database,",
-    "            schema=schema,",
-    "        )",
-    "        try:",
-    "            write_pandas(",
-    "                conn, df, table_name=table, database=database, schema=schema,",
-    "                auto_create_table=True, overwrite=True, quote_identifiers=False,",
-    "            )",
-    "            print(f\"Wrote {len(df)} rows to Snowflake {database}.{schema}.{table}\")",
-    "        finally:",
-    "            conn.close()",
-    "        return",
-    "    if TARGET_CONNECTOR == \"postgres\":",
-    "        from urllib.parse import quote_plus",
-    "        from sqlalchemy import create_engine",
-    "",
-    "        conninfo = (os.environ.get(\"POSTGRES_CONNINFO\") or os.environ.get(\"POSTGRES_URI\") or \"\").strip()",
-    "        if not conninfo:",
-    "            user = os.environ.get(\"POSTGRES_USER\", \"\").strip()",
-    "            password = os.environ.get(\"POSTGRES_PASSWORD\", \"\")",
-    "            host = os.environ.get(\"POSTGRES_HOST\", \"localhost\").strip() or \"localhost\"",
-    "            port = os.environ.get(\"POSTGRES_PORT\", \"5432\").strip() or \"5432\"",
-    "            database = os.environ.get(\"POSTGRES_DATABASE\", \"\").strip()",
-    "            if not user or not database:",
-    "                raise RuntimeError(",
-    "                    \"Set POSTGRES_CONNINFO or POSTGRES_USER/POSTGRES_PASSWORD/\"",
-    "                    \"POSTGRES_HOST/POSTGRES_PORT/POSTGRES_DATABASE in .env\"",
-    "                )",
-    "            conninfo = (",
-    "                f\"postgresql+psycopg://{quote_plus(user)}:{quote_plus(password)}\"",
-    "                f\"@{host}:{port}/{database}\"",
-    "            )",
-    "        engine = create_engine(conninfo)",
-    "        df.to_sql(TARGET_OBJECT, engine, if_exists=\"replace\", index=False)",
-    "        print(f\"Wrote {len(df)} rows to Postgres {TARGET_OBJECT}\")",
-    "        return",
-    "    out = Path(TARGET_OBJECT)",
-    "    if out.suffix.lower() == \".parquet\" or TARGET_OBJECT.endswith(\"/\"):",
-    "        dest = out if out.suffix else out / \"flattened.parquet\"",
-    "        dest.parent.mkdir(parents=True, exist_ok=True)",
-    "        df.to_parquet(dest, index=False)",
-    "        print(f\"Wrote {len(df)} rows to {dest}\")",
-    "        return",
-    "    raise NotImplementedError(",
-    "        f\"Wire write path for target={TARGET_OBJECT!r} connector={TARGET_CONNECTOR!r}\"",
-    "    )",
-    "",
-    "",
     "def main() -> None:",
     "    df = read_source()",
     "    if df.empty:",
     "        raise SystemExit(\"No rows loaded from \" + SOURCE_RELATIVE)",
     "    print(f\"Loaded {len(df)} tabular rows from local file\")",
-    "    write_target(df)",
+    "    write_cloud_target(df, TARGET_OBJECT, TARGET_CONNECTOR, TARGET_CONNECTOR_ID)",
     "",
     "",
     'if __name__ == "__main__":',
     "    main()",
     "",
-  ].join("\n");
+    ])
+    .join("\n");
 }
 
 function generateLocalFileEtlSql(ctx) {
@@ -3806,6 +3688,10 @@ function generateEtlSqlScript(ctx) {
 
 function generateSnowflakeJsonFlattenPython(ctx) {
   const p = etlStageTargetParts(ctx);
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
   return [
     '"""DataHive generated Snowflake nested-JSON flatten → tabular RAW.',
     "Pipeline : " + ctx.name,
@@ -3814,6 +3700,7 @@ function generateSnowflakeJsonFlattenPython(ctx) {
     "",
     "Reads JSON from the Snowflake stage, flattens nested objects/arrays with",
     "pandas.json_normalize, and loads a wide tabular table via write_pandas.",
+    "Auth: selected Snowflake connector via /api/connectors/{id}/runtime-env.",
     '"""',
     "from __future__ import annotations",
     "",
@@ -3825,7 +3712,6 @@ function generateSnowflakeJsonFlattenPython(ctx) {
     "from typing import Any",
     "",
     "import pandas as pd",
-    "import snowflake.connector",
     "from snowflake.connector.pandas_tools import write_pandas",
     "",
     "STAGE_LOCATION = " + JSON.stringify(p.location),
@@ -3834,14 +3720,13 @@ function generateSnowflakeJsonFlattenPython(ctx) {
     "TARGET_TABLE = " + JSON.stringify(p.table),
     "SOURCE_FILE = " + JSON.stringify(p.filePath),
     "",
+  ]
+    .concat(boot)
+    .concat([
     "",
     "def connect():",
-    "    # Fill from connector_dtls / env — do not hardcode secrets.",
-    "    return snowflake.connector.connect(",
-    '        account=os.environ.get("SNOWFLAKE_ACCOUNT", "..."),',
-    '        user=os.environ.get("SNOWFLAKE_USER", "..."),',
-    '        password=os.environ.get("SNOWFLAKE_PASSWORD", "..."),',
-    '        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "DEV_WH"),',
+    "    return snowflake_connect(",
+    "        SOURCE_CONNECTOR_ID or TARGET_CONNECTOR_ID,",
     "        database=TARGET_DATABASE,",
     "        schema=TARGET_SCHEMA,",
     "    )",
@@ -3951,7 +3836,8 @@ function generateSnowflakeJsonFlattenPython(ctx) {
     'if __name__ == "__main__":',
     "    main()",
     "",
-  ].join("\n");
+    ])
+    .join("\n");
 }
 
 function generateSnowflakeStageIngestPython(ctx, opts) {
@@ -3961,6 +3847,10 @@ function generateSnowflakeStageIngestPython(ctx, opts) {
   }
   const sql = generateSnowflakeStageIngestSql(ctx);
   const label = (opts && opts.viaLabel) || "Python";
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
   return [
     '"""DataHive generated Snowflake stage → RAW table load (' + label + ").",
     "Pipeline : " + ctx.name,
@@ -3968,24 +3858,24 @@ function generateSnowflakeStageIngestPython(ctx, opts) {
     "Target  : " + ctx.targetLabel + " [" + ctx.targetType + "] → " + ctx.targetObject,
     "",
     "Uses snowflake-connector-python to run DDL + COPY INTO.",
-    "PySpark is not required for internal Snowflake stage loads.",
+    "Auth: selected Snowflake connector via /api/connectors/{id}/runtime-env.",
     '"""',
     "from __future__ import annotations",
     "",
-    "import snowflake.connector",
+    "import os",
+    "from typing import Any",
     "",
     "SQL_SCRIPT = " + JSON.stringify(sql),
     "",
+  ]
+    .concat(boot)
+    .concat([
     "",
     "def main() -> None:",
-    "    # Fill connection from connector_dtls / env — do not hardcode secrets.",
-    "    conn = snowflake.connector.connect(",
-    "        account=\"...\",",
-    "        user=\"...\",",
-    "        password=\"...\",",
-    "        warehouse=\"DEV_WH\",",
-    "        database=\"SALES_DB\",",
-    "        schema=\"RAW\",",
+    "    conn = snowflake_connect(",
+    "        SOURCE_CONNECTOR_ID or TARGET_CONNECTOR_ID,",
+    "        database=" + JSON.stringify(p.database) + ",",
+    "        schema=" + JSON.stringify(p.schema) + ",",
     "    )",
     "    try:",
     "        with conn.cursor() as cur:",
@@ -3999,7 +3889,8 @@ function generateSnowflakeStageIngestPython(ctx, opts) {
     'if __name__ == "__main__":',
     "    main()",
     "",
-  ].join("\n");
+    ])
+    .join("\n");
 }
 
 function generateEtlPythonScript(ctx) {
@@ -4014,77 +3905,67 @@ function generateEtlPythonScript(ctx) {
   }
   const src = ctx.sourceObject;
   const tgt = ctx.targetObject;
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
+  const io =
+    typeof etlPythonCloudIoLines === "function" ? etlPythonCloudIoLines() : [];
   return [
     '"""DataHive generated transformation (Python)',
     "Pipeline : " + ctx.name,
     "Source  : " + ctx.sourceLabel + " [" + ctx.sourceType + "] → " + src,
     "Target  : " + ctx.targetLabel + " [" + ctx.targetType + "] → " + tgt,
+    "",
+    "Auth: selected connectors via GET /api/connectors/{id}/runtime-env",
+    "(GCP SA / AWS keys / Azure SP / Snowflake password|key-pair|OAuth).",
+    "Requires the DataHive API running so scripts can resolve credentials.",
     '"""',
     "from __future__ import annotations",
     "",
+    "import os",
     "from datetime import datetime, timezone",
+    "from pathlib import Path",
+    "from typing import Any",
     "",
     "import pandas as pd",
     "",
-    "SOURCE_CONNECTOR = " + JSON.stringify(ctx.sourceType),
-    "TARGET_CONNECTOR = " + JSON.stringify(ctx.targetType),
     "SOURCE_OBJECT = " + JSON.stringify(src),
     "TARGET_OBJECT = " + JSON.stringify(tgt),
     "",
+  ]
+    .concat(boot)
+    .concat(io)
+    .concat([
     "",
     "def read_source() -> pd.DataFrame:",
-    '    """Load source rows — swap in connector SDK / SQLAlchemy / boto3 as needed."""',
-    "    if SOURCE_CONNECTOR in {\"aws\"} or SOURCE_OBJECT.startswith(\"s3://\"):",
-    "        # Example: df = pd.read_parquet(SOURCE_OBJECT)",
-    "        raise NotImplementedError(\"Wire AWS credentials from connector_dtls here\")",
-    "    if SOURCE_CONNECTOR in {\"gcp\"} or SOURCE_OBJECT.startswith(\"gs://\"):",
-    "        # For JSON in GCS use Source object = gs://bucket/folder/file.json",
-    "        raise NotImplementedError(\"Wire GCP credentials from connector_dtls here\")",
-    "    if SOURCE_CONNECTOR in {\"azure\"}:",
-    "        raise NotImplementedError(\"Wire Azure credentials from connector_dtls here\")",
-    "    if SOURCE_CONNECTOR in {\"snowflake\"}:",
-    "        raise NotImplementedError(\"Wire Snowflake connector here\")",
-    "    # Default: Postgres / SQLAlchemy",
-    "    # from sqlalchemy import create_engine",
-    "    # engine = create_engine(os.environ[\"POSTGRES_CONNINFO\"])",
-    "    # return pd.read_sql(f\"SELECT * FROM {SOURCE_OBJECT}\", engine)",
-    "    return pd.DataFrame()",
+    "    return read_cloud_source(SOURCE_OBJECT, SOURCE_CONNECTOR, SOURCE_CONNECTOR_ID)",
     "",
     "",
     "def transform(df: pd.DataFrame) -> pd.DataFrame:",
     "    out = df.copy()",
     "    out[\"_dh_ingested_at\"] = datetime.now(timezone.utc).isoformat()",
     "    out[\"_dh_source_system\"] = SOURCE_CONNECTOR",
-    "    # Add renames, casts, and quality rules here.",
     "    return out",
     "",
     "",
     "def write_target(df: pd.DataFrame) -> None:",
-    '    """Persist transformed rows to the destination connector."""',
-    "    if TARGET_CONNECTOR in {\"aws\"} or TARGET_OBJECT.startswith(\"s3://\"):",
-    "        # df.to_parquet(TARGET_OBJECT, index=False)",
-    "        raise NotImplementedError(\"Wire AWS write path here\")",
-    "    if TARGET_CONNECTOR in {\"gcp\"}:",
-    "        raise NotImplementedError(\"Wire BigQuery / GCS write here\")",
-    "    if TARGET_CONNECTOR in {\"azure\"}:",
-    "        raise NotImplementedError(\"Wire Azure write here\")",
-    "    if TARGET_CONNECTOR in {\"snowflake\"}:",
-    "        raise NotImplementedError(\"Wire Snowflake write here\")",
-    "    # Default Postgres path",
-    "    # df.to_sql(TARGET_OBJECT, engine, if_exists=\"append\", index=False)",
-    "    print(f\"Would write {len(df)} rows to {TARGET_OBJECT} via {TARGET_CONNECTOR}\")",
+    "    write_cloud_target(df, TARGET_OBJECT, TARGET_CONNECTOR, TARGET_CONNECTOR_ID)",
     "",
     "",
     "def main() -> None:",
     "    raw = read_source()",
+    "    if raw is None or raw.empty:",
+    "        raise SystemExit(\"No rows loaded from \" + SOURCE_OBJECT)",
     "    clean = transform(raw)",
     "    write_target(clean)",
     "",
     "",
-    'if __name__ == \"__main__\":',
+    'if __name__ == "__main__":',
     "    main()",
     "",
-  ].join("\n");
+    ])
+    .join("\n");
 }
 
 function generateEtlPySparkScript(ctx) {
@@ -4119,25 +4000,62 @@ function generateEtlPySparkScript(ctx) {
         : ctx.targetType === "gcp"
           ? "bigquery"
           : "jdbc";
+  const boot =
+    typeof etlPythonRuntimeBootstrapLines === "function"
+      ? etlPythonRuntimeBootstrapLines(ctx)
+      : [];
   return [
     '"""DataHive generated transformation (PySpark)',
     "Pipeline : " + ctx.name,
     "Source  : " + ctx.sourceLabel + " [" + ctx.sourceType + "] → " + src,
     "Target  : " + ctx.targetLabel + " [" + ctx.targetType + "] → " + tgt,
     "",
-    "Requires: pip install pyspark  (and a Spark runtime).",
+    "Requires: pip install pyspark (and a Spark runtime).",
+    "Auth: apply_connector_runtime() loads selected connector credentials before I/O.",
     "For Snowflake stage → RAW loads, use Language = SQL or Python instead.",
     '"""',
+    "from __future__ import annotations",
+    "",
+    "import os",
+    "from typing import Any",
+    "",
     "from pyspark.sql import SparkSession",
     "from pyspark.sql import functions as F",
     "",
-    "SOURCE_CONNECTOR = " + JSON.stringify(ctx.sourceType),
-    "TARGET_CONNECTOR = " + JSON.stringify(ctx.targetType),
     "SOURCE_OBJECT = " + JSON.stringify(src),
     "TARGET_OBJECT = " + JSON.stringify(tgt),
     "",
+  ]
+    .concat(boot)
+    .concat([
+    "",
+    "def snowflake_spark_options(connector_id: str) -> dict[str, str]:",
+    "    apply_connector_runtime(connector_id)",
+    "    account = os.environ.get(\"SNOWFLAKE_ACCOUNT\", \"\")",
+    "    opts = {",
+    '        \"sfURL\": f\"https://{account}.snowflakecomputing.com\" if account else \"\",',
+    '        \"sfUser\": os.environ.get(\"SNOWFLAKE_USER\", \"\"),',
+    '        \"sfPassword\": os.environ.get(\"SNOWFLAKE_PASSWORD\", \"\"),',
+    '        \"sfWarehouse\": os.environ.get(\"SNOWFLAKE_WAREHOUSE\", \"\"),',
+    '        \"sfDatabase\": os.environ.get(\"SNOWFLAKE_DATABASE\", \"\"),',
+    '        \"sfSchema\": os.environ.get(\"SNOWFLAKE_SCHEMA\", \"\"),',
+    '        \"sfRole\": os.environ.get(\"SNOWFLAKE_ROLE\", \"\"),',
+    "    }",
+    "    return {k: v for k, v in opts.items() if v}",
+    "",
     "",
     "def build_spark() -> SparkSession:",
+    "    # AWS / GCP credentials are picked up from env after apply_connector_runtime.",
+    "    if SOURCE_CONNECTOR == \"aws\" or TARGET_CONNECTOR == \"aws\":",
+    "        apply_connector_runtime(",
+    "            SOURCE_CONNECTOR_ID if SOURCE_CONNECTOR == \"aws\" else TARGET_CONNECTOR_ID",
+    "        )",
+    "    if SOURCE_CONNECTOR in {\"gcp\", \"googlecloud\"} or TARGET_CONNECTOR in {\"gcp\", \"googlecloud\"}:",
+    "        ensure_gcp_credentials(",
+    "            SOURCE_CONNECTOR_ID",
+    "            if SOURCE_CONNECTOR in {\"gcp\", \"googlecloud\"}",
+    "            else TARGET_CONNECTOR_ID",
+    "        )",
     "    return (",
     "        SparkSession.builder.appName(" + JSON.stringify("datahive-" + (ctx.name || "pipeline")) + ")",
     '        .config("spark.sql.session.timeZone", "UTC")',
@@ -4148,23 +4066,30 @@ function generateEtlPySparkScript(ctx) {
     "def read_source(spark: SparkSession):",
     "    fmt = " + JSON.stringify(srcFormat),
     "    if fmt == \"parquet\":",
+    "        apply_connector_runtime(SOURCE_CONNECTOR_ID)",
     "        return spark.read.parquet(SOURCE_OBJECT)",
     "    if fmt == \"bigquery\":",
-    '        return spark.read.format("bigquery").option("table", SOURCE_OBJECT).load()',
+    "        ensure_gcp_credentials(SOURCE_CONNECTOR_ID)",
+    "        return (",
+    '            spark.read.format("bigquery")',
+    '            .option("table", SOURCE_OBJECT)',
+    '            .option("parentProject", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))',
+    "            .load()",
+    "        )",
     "    if fmt == \"snowflake\":",
     "        return (",
     '            spark.read.format("snowflake")',
-    '            .options(**{})  # fill sfURL / sfUser / pem from connector_dtls',
+    "            .options(**snowflake_spark_options(SOURCE_CONNECTOR_ID))",
     '            .option("dbtable", SOURCE_OBJECT)',
     "            .load()",
     "        )",
-    "    # JDBC / Postgres default",
+    "    apply_connector_runtime(SOURCE_CONNECTOR_ID)",
     "    return (",
     '        spark.read.format("jdbc")',
-    '        .option("url", "jdbc:postgresql://localhost:5432/datahivepoc")',
+    '        .option("url", os.environ.get("POSTGRES_CONNINFO", "").replace("postgresql+psycopg://", "jdbc:postgresql://"))',
     '        .option("dbtable", SOURCE_OBJECT)',
-    '        .option("user", "postgres")',
-    '        .option("password", "***")',
+    '        .option("user", os.environ.get("POSTGRES_USER", ""))',
+    '        .option("password", os.environ.get("POSTGRES_PASSWORD", ""))',
     "        .load()",
     "    )",
     "",
@@ -4174,19 +4099,21 @@ function generateEtlPySparkScript(ctx) {
     "        df",
     '        .withColumn("_dh_ingested_at", F.current_timestamp())',
     '        .withColumn("_dh_source_system", F.lit(SOURCE_CONNECTOR))',
-    "        # .filter(...).withColumnRenamed(...)",
     "    )",
     "",
     "",
     "def write_target(df) -> None:",
     "    fmt = " + JSON.stringify(tgtFormat),
     "    if fmt == \"parquet\":",
+    "        apply_connector_runtime(TARGET_CONNECTOR_ID)",
     '        df.write.mode("overwrite").parquet(TARGET_OBJECT)',
     "        return",
     "    if fmt == \"bigquery\":",
+    "        ensure_gcp_credentials(TARGET_CONNECTOR_ID)",
     "        (",
     '            df.write.format("bigquery")',
     '            .option("table", TARGET_OBJECT)',
+    '            .option("parentProject", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))',
     '            .mode("append")',
     "            .save()",
     "        )",
@@ -4194,18 +4121,19 @@ function generateEtlPySparkScript(ctx) {
     "    if fmt == \"snowflake\":",
     "        (",
     '            df.write.format("snowflake")',
-    "            .options(**{})",
+    "            .options(**snowflake_spark_options(TARGET_CONNECTOR_ID))",
     '            .option("dbtable", TARGET_OBJECT)',
     '            .mode("append")',
     "            .save()",
     "        )",
     "        return",
+    "    apply_connector_runtime(TARGET_CONNECTOR_ID)",
     "    (",
     '        df.write.format("jdbc")',
-    '        .option("url", "jdbc:postgresql://localhost:5432/datahivepoc")',
+    '        .option("url", os.environ.get("POSTGRES_CONNINFO", "").replace("postgresql+psycopg://", "jdbc:postgresql://"))',
     '        .option("dbtable", TARGET_OBJECT)',
-    '        .option("user", "postgres")',
-    '        .option("password", "***")',
+    '        .option("user", os.environ.get("POSTGRES_USER", ""))',
+    '        .option("password", os.environ.get("POSTGRES_PASSWORD", ""))',
     '        .mode("append")',
     "        .save()",
     "    )",
@@ -4224,7 +4152,8 @@ function generateEtlPySparkScript(ctx) {
     'if __name__ == "__main__":',
     "    main()",
     "",
-  ].join("\n");
+    ])
+    .join("\n");
 }
 
 function buildEtlScriptContext() {
@@ -4266,12 +4195,17 @@ function buildEtlScriptContext() {
   if (isLocalUpload && !sourceType) {
     // synthetic source connector for local uploads
   }
+  const sourceConnectorId =
+    isLocalUpload || !srcConn ? "" : String(srcConn.id || sourceConnKey || "");
+  const targetConnectorId = tgtConn ? String(tgtConn.id || targetConnKey || "") : "";
   return {
     name,
     sourceType: isLocalUpload && !sourceType ? "upload" : sourceType,
     targetType,
     sourceConnKey: isLocalUpload ? "__local_file__" : sourceConnKey,
     targetConnKey,
+    sourceConnectorId,
+    targetConnectorId,
     sourceLabel: isLocalUpload
       ? (etlLocalUpload && etlLocalUpload.file_name) || sourceObject || "Local file"
       : srcConn
@@ -4705,7 +4639,58 @@ function applyEtlStageFileSelection() {
   }
 }
 
-function generateEtlTransformationScript() {
+function etlIsPersistedConnectorId(id) {
+  return /^[a-f0-9]{24}$/i.test(String(id || "").trim());
+}
+
+async function ensureEtlConnectorCredentials(ctx) {
+  const checks = [];
+  if (!ctx.isLocalUpload && ctx.sourceType && ctx.sourceType !== "upload") {
+    checks.push({ role: "source", id: ctx.sourceConnectorId, label: ctx.sourceLabel });
+  }
+  if (ctx.targetType) {
+    checks.push({ role: "target", id: ctx.targetConnectorId, label: ctx.targetLabel });
+  }
+  for (const item of checks) {
+    if (!etlIsPersistedConnectorId(item.id)) {
+      showEtlError(
+        "Select a saved " +
+          item.role +
+          " connection (with server id) so scripts can load credentials. " +
+          "Re-save the connector under Connectors if it only exists in this browser session."
+      );
+      return false;
+    }
+    try {
+      const res = await fetch(
+        etlApiBaseUrl() + "/api/connectors/" + encodeURIComponent(item.id) + "/auth-ready",
+        { headers: { "X-DataHive-User": "etl" } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.credentials_configured) {
+        showEtlError(
+          "Credentials are not ready for " +
+            item.role +
+            " connection “" +
+            (item.label || item.id) +
+            "”. Re-test/save the connector, then generate again."
+        );
+        return false;
+      }
+    } catch (err) {
+      showEtlError(
+        "Could not verify " +
+          item.role +
+          " connector credentials (is the API running?): " +
+          (err && err.message ? err.message : err)
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
+async function generateEtlTransformationScript() {
   const ctx = buildEtlScriptContext();
   if (!ctx.isLocalUpload && !ctx.sourceType) {
     showEtlError("Select a source connector before generating a script.");
@@ -4725,6 +4710,10 @@ function generateEtlTransformationScript() {
   if (!ctx.targetConnKey || ctx.targetConnKey === "__configure__") {
     showEtlError("Select a destination connection before generating a script.");
     return null;
+  }
+  if (ctx.language === "python" || ctx.language === "pyspark") {
+    const credOk = await ensureEtlConnectorCredentials(ctx);
+    if (!credOk) return null;
   }
   if (ctx.sourceKind === "local_file" || ctx.isLocalUpload) {
     if (!ctx.sourceObject && !(etlLocalUpload && etlLocalUpload.source_object)) {
@@ -4859,10 +4848,16 @@ function generateEtlTransformationScript() {
       " → " +
       etlPlatformLabel(ctx.targetType) +
       " · " +
-      languageLabel;
+      languageLabel +
+      (ctx.language === "sql"
+        ? ""
+        : " · auth via connector runtime-env");
   }
   const meta = $("#etlScriptMeta");
   if (meta) {
+    const authBits = [];
+    if (ctx.sourceConnectorId) authBits.push("src=" + ctx.sourceConnectorId.slice(0, 8) + "…");
+    if (ctx.targetConnectorId) authBits.push("tgt=" + ctx.targetConnectorId.slice(0, 8) + "…");
     meta.textContent =
       "Generated for " +
       ctx.sourceObject +
@@ -4870,7 +4865,9 @@ function generateEtlTransformationScript() {
       ctx.targetObject +
       " (" +
       script.split("\n").length +
-      " lines). Edit freely before saving.";
+      " lines)" +
+      (authBits.length ? " · credentials: " + authBits.join(", ") : "") +
+      ". Edit freely before saving.";
   }
   const err = $("#etlFormError");
   if (err) err.classList.add("hidden");
@@ -5314,16 +5311,22 @@ function bindEtlEvents() {
 
   const langSel = $("#etl_language");
   if (langSel) {
-    langSel.addEventListener("change", () => {
-      if (etlGeneratedScript) generateEtlTransformationScript();
+    langSel.addEventListener("change", async () => {
+      if (etlGeneratedScript) await generateEtlTransformationScript();
     });
   }
 
   const genBtn = $("#etlGenerateBtn");
   if (genBtn) {
-    genBtn.addEventListener("click", () => {
-      const result = generateEtlTransformationScript();
-      if (result) showEtlOk("Transformation script generated (" + result.ctx.language.toUpperCase() + ").");
+    genBtn.addEventListener("click", async () => {
+      const result = await generateEtlTransformationScript();
+      if (result) {
+        showEtlOk(
+          "Transformation script generated (" +
+            result.ctx.language.toUpperCase() +
+            "). Python/PySpark loads credentials from the selected connectors at runtime."
+        );
+      }
     });
   }
 
@@ -5368,7 +5371,7 @@ function bindEtlEvents() {
 
   $("#etlResetBtn").addEventListener("click", resetEtlForm);
 
-  $("#etlForm").addEventListener("submit", (e) => {
+  $("#etlForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = ($("#etl_name").value || "").trim();
     const sourceType = $("#etl_source_type").value;
@@ -5403,7 +5406,7 @@ function bindEtlEvents() {
 
     let script = ($("#etlScriptEditor") && $("#etlScriptEditor").value) || etlGeneratedScript;
     if (!script || !script.trim()) {
-      const generated = generateEtlTransformationScript();
+      const generated = await generateEtlTransformationScript();
       if (!generated) return;
       script = generated.script;
     }
