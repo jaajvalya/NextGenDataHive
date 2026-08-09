@@ -7,13 +7,55 @@
 (function (global) {
   "use strict";
 
-  var http = global.DataHiveHttp;
-  var apiBase = http.apiBase;
+  // Fall back if http.js failed to load so the tab still appears.
+  var http = global.DataHiveHttp || {
+    apiBase: function () {
+      var host =
+        (global.location && global.location.hostname) || "127.0.0.1";
+      return "http://" + host + ":5055";
+    },
+    escapeHtml: function (s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    },
+    headers: function () {
+      return { "Content-Type": "application/json", "X-DataHive-User": "Admin" };
+    },
+    postJson: async function (path, body) {
+      var res = await fetch(this.apiBase() + path, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(body || {}),
+      });
+      var text = await res.text();
+      var parsed = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        var err = new Error(
+          (parsed && parsed.detail) || text || "HTTP " + res.status
+        );
+        err.httpStatus = res.status;
+        throw err;
+      }
+      return parsed;
+    },
+  };
+  var apiBase = http.apiBase.bind(http);
   var escapeHtml = http.escapeHtml;
-  var postJson = http.postJson;
+  var postJson = http.postJson.bind(http);
 
   function $(sel) {
     return document.querySelector(sel);
+  }
+
+  function refreshIcons() {
+    if (global.lucide && typeof global.lucide.createIcons === "function") {
+      global.lucide.createIcons({
+        attrs: { "stroke-width": "1.75", "aria-hidden": "true" },
+      });
+    }
   }
 
   var state = {
@@ -317,7 +359,10 @@
     }
   }
 
-  /** Show the nav entry only when a model provider is configured. */
+  /**
+   * Hide the nav only when the API explicitly says AI is disabled.
+   * The tab is visible by default so a flaky health check cannot blank it out.
+   */
   async function checkHealth() {
     var nav = document.getElementById("navAsk");
     try {
@@ -325,11 +370,15 @@
         headers: http.headers(),
         cache: "no-store",
       });
-      state.health = res.ok ? await res.json() : { enabled: false };
+      state.health = res.ok ? await res.json() : { enabled: true };
     } catch (_e) {
-      state.health = { enabled: false };
+      // Keep the tab visible; the Ask action will surface the real error.
+      state.health = { enabled: true, provider: "unknown", model: "" };
     }
-    if (nav) nav.hidden = !state.health.enabled;
+    if (nav) {
+      nav.hidden = state.health.enabled === false;
+      if (!nav.hidden) refreshIcons();
+    }
     return state.health;
   }
 
