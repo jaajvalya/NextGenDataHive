@@ -16,6 +16,8 @@ _AI_ENV = (
     "DATAHIVE_AI_MAX_ROWS",
     "DATAHIVE_AI_SEND_RESULTS",
     "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
 )
 
 
@@ -47,6 +49,48 @@ def test_local_ollama_is_opt_in(monkeypatch):
     settings = provider.load_settings()
     assert settings.provider == "ollama"
     assert isinstance(provider.get_provider(settings), provider.OllamaProvider)
+
+
+def test_google_gemma_provider_is_opt_in(monkeypatch):
+    monkeypatch.setenv("DATAHIVE_AI_PROVIDER", "gemma")
+    monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test")
+    monkeypatch.setenv("DATAHIVE_AI_MODEL", "gemma-3-12b-it")
+    settings = provider.load_settings()
+    assert settings.provider == "google"
+    assert settings.api_key == "AIza-test"
+    assert settings.model == "gemma-3-12b-it"
+    assert isinstance(provider.get_provider(settings), provider.GoogleProvider)
+
+
+def test_google_without_a_key_is_not_configured(monkeypatch):
+    monkeypatch.setenv("DATAHIVE_AI_PROVIDER", "google")
+    with pytest.raises(provider.AINotConfigured):
+        provider.get_provider(provider.load_settings())
+
+
+def test_gemma_folds_system_into_first_user_turn():
+    settings = provider.AISettings(
+        provider="google",
+        model="gemma-3-12b-it",
+        api_key="k",
+        base_url=provider.GOOGLE_DEFAULT_BASE_URL,
+        timeout=30.0,
+        max_rows=100,
+        send_results=True,
+    )
+    gp = provider.GoogleProvider(settings)
+    payload = gp._build_payload(
+        [
+            {"role": "system", "content": "You are a SQL planner."},
+            {"role": "user", "content": "How many customers?"},
+        ],
+        json_mode=True,
+        temperature=0.0,
+    )
+    assert "systemInstruction" not in payload
+    assert payload["contents"][0]["role"] == "user"
+    assert "SQL planner" in payload["contents"][0]["parts"][0]["text"]
+    assert payload["generationConfig"]["responseMimeType"] == "application/json"
 
 
 def test_openai_key_can_come_from_the_standard_variable(monkeypatch):

@@ -4,9 +4,9 @@ Providers are plain HTTP calls rather than vendor SDKs: the install stays light,
 and swapping a hosted model for a local Ollama is a one-line `.env` change.
 
 Configuration (repo-root `.env`):
-    DATAHIVE_AI_PROVIDER    auto | openai | ollama | none   (default: auto)
+    DATAHIVE_AI_PROVIDER    auto | openai | google | ollama | none   (default: auto)
     DATAHIVE_AI_MODEL       model name, provider specific
-    DATAHIVE_AI_API_KEY     falls back to OPENAI_API_KEY
+    DATAHIVE_AI_API_KEY     falls back to OPENAI_API_KEY / GOOGLE_API_KEY / GEMINI_API_KEY
     DATAHIVE_AI_BASE_URL    override the provider endpoint
     DATAHIVE_AI_TIMEOUT     seconds per request (default: 60)
     DATAHIVE_AI_MAX_ROWS    row cap for generated queries (default: 500)
@@ -15,6 +15,8 @@ Configuration (repo-root `.env`):
 
 `auto` picks OpenAI when an API key is present and otherwise disables the
 feature. Running locally is opt-in: set DATAHIVE_AI_PROVIDER=ollama explicitly.
+Google Gemma / Gemini use the native Generative Language API
+(`DATAHIVE_AI_PROVIDER=google`).
 """
 from __future__ import annotations
 
@@ -24,6 +26,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 
@@ -38,6 +41,8 @@ OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
+GOOGLE_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+GOOGLE_DEFAULT_MODEL = "gemma-3-12b-it"
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
@@ -46,6 +51,7 @@ __all__ = [
     "AINotConfigured",
     "AIProviderError",
     "AISettings",
+    "GoogleProvider",
     "LLMProvider",
     "OllamaProvider",
     "OpenAIProvider",
@@ -69,7 +75,7 @@ class AISettings:
 
     @property
     def configured(self) -> bool:
-        return self.provider in {"openai", "ollama"}
+        return self.provider in {"openai", "ollama", "google"}
 
 
 def _env(name: str, default: str = "") -> str:
@@ -101,7 +107,12 @@ def load_settings() -> AISettings:
     """Read AI configuration from the environment / repo-root `.env`."""
     load_repo_dotenv()
 
-    api_key = _env("DATAHIVE_AI_API_KEY") or _env("OPENAI_API_KEY")
+    api_key = (
+        _env("DATAHIVE_AI_API_KEY")
+        or _env("OPENAI_API_KEY")
+        or _env("GOOGLE_API_KEY")
+        or _env("GEMINI_API_KEY")
+    )
     provider = _env("DATAHIVE_AI_PROVIDER", "auto").lower()
     if provider in {"", "auto"}:
         # Never guess at a local daemon: an unset provider hides the tab rather
@@ -111,6 +122,10 @@ def load_settings() -> AISettings:
         # Azure exposes an OpenAI-compatible surface; the deployment URL goes in BASE_URL.
         provider = "openai"
         default_base, default_model = OPENAI_DEFAULT_BASE_URL, OPENAI_DEFAULT_MODEL
+    elif provider in {"google", "gemini", "gemma", "google-ai", "googleai"}:
+        # Native Generative Language API (required for Gemma; also works for Gemini).
+        provider = "google"
+        default_base, default_model = GOOGLE_DEFAULT_BASE_URL, GOOGLE_DEFAULT_MODEL
     elif provider == "ollama":
         default_base, default_model = OLLAMA_DEFAULT_BASE_URL, OLLAMA_DEFAULT_MODEL
     else:
@@ -204,6 +219,149 @@ class OpenAIProvider:
         return response.json()
 
 
+class GoogleProvider:
+    """Google AI Studio / Gemini API (native generateContent).
+
+    Required for Gemma models, which are not reliably available on Google's
+    OpenAI-compatible endpoint. Also works for Gemini model ids.
+    """
+
+    name = "google"
+
+    def __init__(self, settings: AISettings):
+        self._settings = settings
+        self.model = (settings.model or GOOGLE_DEFAULT_MODEL).removeprefix("models/")
+        self._base_url = (settings.base_url or GOOGLE_DEFAULT_BASE_URL).rstrip("/")
+
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.0,
+    ) -> str:
+        payload = self._build_payload(messages, json_mode=json_mode, temperature=temperature)
+        data = self._post(payload)
+        if data is None and json_mode:
+            # Some Gemma variants reject responseMimeType; rely on prompt + parse.
+            payload = self._build_payload(messages, json_mode=False, temperature=temperature)
+            data = self._post(payload, allow_json_retry=False)
+        if data is None:
+            raise AIProviderError("Google Generative Language API returned an empty body.")
+        return self._extract_text(data)
+
+    def _build_payload(
+        self,
+        messages: list[Message],
+        *,
+        json_mode: bool,
+        temperature: float,
+    ) -> dict[str, Any]:
+        system_chunks: list[str] = []
+        contents: list[dict[str, Any]] = []
+        for msg in messages:
+            role = (msg.get("role") or "user").lower()
+            text = str(msg.get("content") or "")
+            if not text.strip():
+                continue
+            if role == "system":
+                system_chunks.append(text)
+                continue
+            google_role = "model" if role in {"assistant", "model"} else "user"
+            contents.append({"role": google_role, "parts": [{"text": text}]})
+
+        # Gemma often rejects a separate systemInstruction; fold it into the first user turn.
+        system_text = "\n\n".join(system_chunks).strip()
+        is_gemma = self.model.lower().startswith("gemma")
+        if system_text and contents and contents[0]["role"] == "user" and is_gemma:
+            first = contents[0]["parts"][0]["text"]
+            contents[0]["parts"][0]["text"] = system_text + "\n\n" + first
+            system_text = ""
+        elif system_text and not contents:
+            contents = [{"role": "user", "parts": [{"text": system_text}]}]
+            system_text = ""
+
+        if not contents:
+            raise AIProviderError("No messages to send to the Google model.")
+
+        # Alternating roles: if two user turns land back-to-back, merge them.
+        merged: list[dict[str, Any]] = []
+        for item in contents:
+            if merged and merged[-1]["role"] == item["role"]:
+                merged[-1]["parts"][0]["text"] += "\n\n" + item["parts"][0]["text"]
+            else:
+                merged.append(item)
+
+        payload: dict[str, Any] = {
+            "contents": merged,
+            "generationConfig": {
+                "temperature": temperature,
+            },
+        }
+        if system_text and not is_gemma:
+            payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+        elif system_text and is_gemma:
+            # Fallback if there was no user turn to fold into.
+            merged[0]["parts"][0]["text"] = system_text + "\n\n" + merged[0]["parts"][0]["text"]
+
+        if json_mode:
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+        return payload
+
+    def _post(
+        self, payload: dict[str, Any], *, allow_json_retry: bool = True
+    ) -> dict[str, Any] | None:
+        model_path = quote(self.model, safe="-_.")
+        url = f"{self._base_url}/models/{model_path}:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self._settings.api_key,
+        }
+        try:
+            response = httpx.post(
+                url, json=payload, headers=headers, timeout=self._settings.timeout
+            )
+        except httpx.HTTPError as exc:
+            raise AIProviderError(
+                f"Could not reach Google Generative Language API: {exc}"
+            ) from exc
+
+        if response.status_code in {400, 404} and allow_json_retry:
+            body = response.text.lower()
+            if "responsemimetype" in body or "mime" in body or "json" in body:
+                return None
+        if response.status_code in {401, 403}:
+            raise AINotConfigured(
+                "The configured Google AI API key was rejected. "
+                "Check DATAHIVE_AI_API_KEY / GOOGLE_API_KEY from Google AI Studio."
+            )
+        if response.status_code >= 400:
+            raise AIProviderError(
+                f"Google model request failed ({response.status_code}): {response.text[:400]}"
+            )
+        return response.json()
+
+    @staticmethod
+    def _extract_text(data: dict[str, Any]) -> str:
+        try:
+            candidates = data.get("candidates") or []
+            parts = candidates[0]["content"]["parts"]
+            texts = [str(p.get("text") or "") for p in parts if isinstance(p, dict)]
+            text = "".join(texts).strip()
+            if text:
+                return text
+        except (KeyError, IndexError, TypeError) as exc:
+            raise AIProviderError(f"Unexpected Google response shape: {data}") from exc
+        # Blocked / empty completion
+        feedback = data.get("promptFeedback") or {}
+        block = feedback.get("blockReason") or ""
+        raise AIProviderError(
+            "Google model returned no text"
+            + (f" (blocked: {block})" if block else "")
+            + f": {data}"
+        )
+
+
 class OllamaProvider:
     """Local Ollama daemon — no credentials, nothing leaves the machine."""
 
@@ -256,7 +414,7 @@ class OllamaProvider:
         except httpx.HTTPError as exc:
             raise AIProviderError(
                 f"Could not reach Ollama at {self._base_url}: {exc}. "
-                "Start it with `ollama serve`, or set DATAHIVE_AI_PROVIDER=openai."
+                "Start it with `ollama serve`, or set DATAHIVE_AI_PROVIDER=google|openai."
             ) from exc
 
         if response.status_code >= 400:
@@ -276,14 +434,21 @@ def get_provider(settings: AISettings | None = None) -> LLMProvider:
         if not cfg.api_key:
             raise AINotConfigured(
                 "OpenAI is selected but no key is set. Add DATAHIVE_AI_API_KEY to .env, "
-                "or set DATAHIVE_AI_PROVIDER=ollama to run a local model."
+                "or set DATAHIVE_AI_PROVIDER=google / ollama."
             )
         return OpenAIProvider(cfg)
+    if cfg.provider == "google":
+        if not cfg.api_key:
+            raise AINotConfigured(
+                "Google AI is selected but no key is set. Add DATAHIVE_AI_API_KEY "
+                "(or GOOGLE_API_KEY / GEMINI_API_KEY) from Google AI Studio."
+            )
+        return GoogleProvider(cfg)
     if cfg.provider == "ollama":
         return OllamaProvider(cfg)
     raise AINotConfigured(
         "Natural-language querying is disabled. Set DATAHIVE_AI_PROVIDER in .env "
-        "to `openai` (with DATAHIVE_AI_API_KEY) or `ollama`."
+        "to `google` (Gemma/Gemini), `openai`, or `ollama`."
     )
 
 

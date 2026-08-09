@@ -140,11 +140,21 @@ Ask a question in English and Aura picks a connector, reads only the schema it
 needs, writes a read-only query and runs it through the same executor as the
 Insights tab.
 
-The tab is hidden until a model provider is configured in `.env`. For a hosted
-model:
+The tab is hidden until a model provider is configured in `.env`. For Google
+Gemma (native Generative Language API — required for Gemma; also works for
+Gemini):
 
 ```bash
-DATAHIVE_AI_PROVIDER=openai      # or ollama, none, or auto
+DATAHIVE_AI_PROVIDER=google
+DATAHIVE_AI_API_KEY=...          # from https://aistudio.google.com/apikey
+                                 # GOOGLE_API_KEY / GEMINI_API_KEY also work
+DATAHIVE_AI_MODEL=gemma-3-12b-it # or gemma-3-27b-it, gemini-2.0-flash, …
+```
+
+OpenAI (or any OpenAI-compatible host):
+
+```bash
+DATAHIVE_AI_PROVIDER=openai      # or ollama, google, none, or auto
 DATAHIVE_AI_API_KEY=sk-...       # OPENAI_API_KEY also works
 DATAHIVE_AI_MODEL=gpt-4o-mini
 ```
@@ -158,10 +168,11 @@ DATAHIVE_AI_PROVIDER=ollama
 DATAHIVE_AI_MODEL=qwen2.5-coder:7b
 ```
 
-`auto` uses OpenAI when a key is present and is off otherwise — local models are
-opt-in, so an unset provider hides the tab rather than pointing at a daemon that
-may not be installed. Azure OpenAI works through the same client: set
-`DATAHIVE_AI_PROVIDER=azure` and point `DATAHIVE_AI_BASE_URL` at the deployment.
+`auto` uses OpenAI when a key is present and is off otherwise — Google and local
+models are opt-in, so an unset provider hides the tab rather than pointing at a
+daemon that may not be installed. Azure OpenAI works through the same OpenAI
+client: set `DATAHIVE_AI_PROVIDER=azure` and point `DATAHIVE_AI_BASE_URL` at the
+deployment.
 
 How a question becomes an answer:
 
