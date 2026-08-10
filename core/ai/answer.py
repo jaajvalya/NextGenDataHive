@@ -20,6 +20,9 @@ MAX_SAMPLE_COLUMNS = 20
 
 _SYSTEM_PROMPT = """You explain a query result to the person who asked the question.
 
+Output ONLY the final answer as plain prose. Do not show planning, goals,
+constraints, checklists, outlines, or bullet scratchpads.
+
   - Lead with the direct answer, in one or two sentences.
   - Quote concrete numbers and names from the rows.
   - The rows may be a truncated sample; say so if the answer depends on the full set.
@@ -52,6 +55,8 @@ def summarize(
     provider: LLMProvider,
 ) -> str:
     """Written answer for a result set. Returns "" if the model is unavailable."""
+    from .provider import strip_model_scratchpad
+
     rows = result.get("rows") or []
     if not rows:
         return "The query ran successfully but returned no rows."
@@ -68,13 +73,21 @@ def summarize(
     }
 
     try:
-        return provider.complete(
+        text = provider.complete(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload, default=str)},
+                {
+                    "role": "user",
+                    "content": (
+                        "Write only the final prose answer for this result. "
+                        "No planning steps.\n"
+                        + json.dumps(payload, default=str)
+                    ),
+                },
             ],
             temperature=0.2,
         ).strip()
+        return strip_model_scratchpad(text)
     except AIProviderError as exc:
         # The rows are already in hand; a missing summary should not fail the request.
         _log.warning("answer synthesis failed: %s", exc)

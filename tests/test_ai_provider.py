@@ -162,3 +162,22 @@ def test_json_is_recovered_from_chatty_output(text):
 def test_unparseable_output_raises(text):
     with pytest.raises(provider.AIProviderError):
         provider.parse_json_response(text)
+
+
+def test_scratchpad_planning_is_stripped_to_the_direct_answer():
+    raw = """
+*   Goal: Explain query results to the user.
+    *   Constraints:
+        *   Lead with a direct answer (1-2 sentences).
+    *   Question: "Show the 10 most recent orders"
+    *   Direct answer: The 10 most recent orders range from July 20 to July 31, 2026.
+    *   Details:
+        *   ORD0062 for CUS0584 on 2026-07-31 for 71.56.
+        *   ORD0806 for CUS0424 on 2026-07-30 for 83.55.
+    *   Lead with direct answer? Yes.
+"""
+    out = provider.strip_model_scratchpad(raw)
+    assert out.startswith("The 10 most recent orders range from July 20 to July 31, 2026.")
+    assert "ORD0062" in out
+    assert "Goal:" not in out
+    assert "Lead with direct answer?" not in out

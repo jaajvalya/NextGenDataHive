@@ -45,6 +45,65 @@ GOOGLE_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GOOGLE_DEFAULT_MODEL = "gemma-4-31b-it"
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+_ANSWER_MARKERS = (
+    "Direct answer:",
+    "Final answer:",
+    "Answer:",
+)
+_SCRATCHPAD_HINTS = re.compile(
+    r"(?im)^\s*(?:\*+\s*)?(?:Goal|Constraints?|Question|Columns|Rows|Details|"
+    r"Lead with|Quote concrete|Truncated|Invent figures|Plain prose|Most recent|"
+    r"Least recent|Checklist)\b"
+)
+
+
+def strip_model_scratchpad(text: str) -> str:
+    """Drop planning / thinking outlines some models (esp. Gemma) emit before the answer."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+
+    meta_stop = re.compile(
+        r"(?im)^\s*(?:\*+\s*)?(?:Lead with|Quote concrete|Truncated|Invent figures|"
+        r"Describe only|Plain prose|Checklist|Constraints?|Goal)\b"
+    )
+
+    # Prefer an explicit final-answer section when present.
+    for marker in _ANSWER_MARKERS:
+        idx = raw.lower().find(marker.lower())
+        if idx == -1:
+            continue
+        after = raw[idx + len(marker) :].strip()
+        lines: list[str] = []
+        for line in after.splitlines():
+            if meta_stop.match(line) and lines:
+                break
+            cleaned = re.sub(r"^\s*\*\s+", "", line).strip()
+            # Skip section labels like "Details:" but keep the following bullets.
+            if re.fullmatch(r"(?i)details?:?", cleaned):
+                continue
+            if cleaned:
+                lines.append(cleaned)
+        prose = " ".join(lines).strip()
+        if prose:
+            return prose
+
+    # No marker: if it looks like a bullet scratchpad, keep only non-meta lines.
+    if _SCRATCHPAD_HINTS.search(raw) or raw.lstrip().startswith("*"):
+        kept: list[str] = []
+        for line in raw.splitlines():
+            if _SCRATCHPAD_HINTS.match(line):
+                continue
+            cleaned = re.sub(r"^\s*\*\s+", "", line).strip()
+            if not cleaned:
+                continue
+            if cleaned.lower().startswith(("yes.", "no.", "yes?", "no?")):
+                continue
+            kept.append(cleaned)
+        if kept:
+            return " ".join(kept).strip()
+    return raw
+
 
 # Re-export so existing `from core.ai.provider import AINotConfigured` keeps working.
 __all__ = [
@@ -59,6 +118,7 @@ __all__ = [
     "load_settings",
     "parse_json_response",
     "provider_status",
+    "strip_model_scratchpad",
 ]
 
 
@@ -248,7 +308,7 @@ class GoogleProvider:
             data = self._post(payload, allow_json_retry=False)
         if data is None:
             raise AIProviderError("Google Generative Language API returned an empty body.")
-        return self._extract_text(data)
+        return strip_model_scratchpad(self._extract_text(data))
 
     def _build_payload(
         self,
@@ -292,11 +352,17 @@ class GoogleProvider:
             else:
                 merged.append(item)
 
+        generation: dict[str, Any] = {"temperature": temperature}
+        # Gemma 4 / Gemini thinking models: keep reasoning minimal and off the wire.
+        if not self._settings.think:
+            generation["thinkingConfig"] = {
+                "includeThoughts": False,
+                "thinkingLevel": "MINIMAL",
+            }
+
         payload: dict[str, Any] = {
             "contents": merged,
-            "generationConfig": {
-                "temperature": temperature,
-            },
+            "generationConfig": generation,
         }
         if system_text and not is_gemma:
             payload["systemInstruction"] = {"parts": [{"text": system_text}]}
@@ -328,7 +394,27 @@ class GoogleProvider:
 
         if response.status_code in {400, 404} and allow_json_retry:
             body = response.text.lower()
-            if "responsemimetype" in body or "mime" in body or "json" in body:
+            # Drop thinkingConfig / json mime when the model rejects them, then retry.
+            if any(
+                token in body
+                for token in (
+                    "responsemimetype",
+                    "mime",
+                    "json",
+                    "thinkingconfig",
+                    "thinkinglevel",
+                    "thinking",
+                )
+            ):
+                cfg = payload.get("generationConfig") or {}
+                if "thinkingConfig" in cfg or "responseMimeType" in cfg:
+                    cfg = dict(cfg)
+                    cfg.pop("thinkingConfig", None)
+                    if "responsemimetype" in body or "mime" in body or "json" in body:
+                        cfg.pop("responseMimeType", None)
+                    payload = dict(payload)
+                    payload["generationConfig"] = cfg
+                    return self._post(payload, allow_json_retry=False)
                 return None
         if response.status_code in {401, 403}:
             raise AINotConfigured(
@@ -346,10 +432,15 @@ class GoogleProvider:
         try:
             candidates = data.get("candidates") or []
             parts = candidates[0]["content"]["parts"]
-            texts = [str(p.get("text") or "") for p in parts if isinstance(p, dict)]
+            texts = [
+                str(p.get("text") or "")
+                for p in parts
+                if isinstance(p, dict) and not p.get("thought")
+            ]
             text = "".join(texts).strip()
             if text:
                 return text
+            # If only thought parts came back, fall through to a clear error.
         except (KeyError, IndexError, TypeError) as exc:
             raise AIProviderError(f"Unexpected Google response shape: {data}") from exc
         # Blocked / empty completion
