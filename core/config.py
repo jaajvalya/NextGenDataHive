@@ -31,6 +31,9 @@ def load_repo_dotenv() -> None:
     if not ENV_PATH.is_file():
         return
     for key, value in _iter_env_lines(ENV_PATH):
+        # Skip blanks so an empty DATAHIVE_AI_API_KEY= cannot mask a later real value.
+        if value == "":
+            continue
         os.environ.setdefault(key, value)
 
 
@@ -41,5 +44,8 @@ def dotenv_values(prefix: str | None = None) -> dict[str, str]:
         return out
     for key, value in _iter_env_lines(ENV_PATH):
         if prefix is None or key.startswith(prefix):
+            # Later non-empty entries win; empty does not erase a prior value.
+            if value == "" and key in out:
+                continue
             out[key] = value
     return out
