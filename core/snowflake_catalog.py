@@ -15,7 +15,31 @@ def _norm(value: Any) -> str:
 
 
 def _parse_account(account_id: str, region: str) -> str:
+    """Normalize a Snowflake account identifier for the Python connector.
+
+    Accepts locators (`xy12345`), region suffixes (`xy12345.us-east-1`), and
+    org accounts (`ORG-ACCOUNT`). People often paste `ORG.ACCOUNT` from the UI;
+    that form breaks TLS host matching, so a two-part non-region dotted id is
+    rewritten to `ORG-ACCOUNT`.
+    """
     account = account_id.strip()
+    # Tolerate a pasted host / URL.
+    account = re.sub(r"^https?://", "", account, flags=re.I)
+    account = account.split("/")[0]
+    account = re.sub(r"\.snowflakecomputing\.com\.?$", "", account, flags=re.I)
+    if not account:
+        return account
+
+    parts = account.split(".")
+    region_like = re.compile(
+        r"^(?:"
+        r"us|eu|ap|ca|sa|af|me|azure|aws|gcp"
+        r")(?:[-_].+)?$",
+        re.I,
+    )
+    # org.account (exactly two labels, second not a region) → org-account
+    if len(parts) == 2 and not region_like.match(parts[1]) and "-" not in account:
+        return f"{parts[0]}-{parts[1]}"
     if "." in account or "-" in account:
         return account
     region = region.strip()
@@ -91,8 +115,10 @@ def connect_kwargs_from_doc(doc: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "account": _parse_account(account_id, region),
         "user": user or None,
-        "login_timeout": 30,
-        "network_timeout": 45,
+        # Snowflake can take a while on cold paths / distant regions; Ask Aura
+        # structure fetches previously failed with 250001 after a single short try.
+        "login_timeout": 60,
+        "network_timeout": 60,
         "client_session_keep_alive": False,
     }
     for key in ("warehouse", "database", "schema", "role"):
@@ -120,10 +146,37 @@ def connect_kwargs_from_doc(doc: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-def open_connection(doc: dict[str, Any]):
-    import snowflake.connector as sf
+def open_connection(doc: dict[str, Any], *, attempts: int = 3):
+    """Open a Snowflake connection, retrying transient backend reachability errors."""
+    import time
 
-    return sf.connect(**connect_kwargs_from_doc(doc))
+    import snowflake.connector as sf
+    from snowflake.connector.errors import OperationalError
+
+    kwargs = connect_kwargs_from_doc(doc)
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return sf.connect(**kwargs)
+        except OperationalError as exc:
+            last_exc = exc
+            msg = str(exc)
+            retryable = "250001" in msg or "Could not connect to Snowflake backend" in msg
+            if not retryable or attempt >= attempts:
+                raise
+            delay = min(2 ** (attempt - 1), 8)
+            _log.warning(
+                "Snowflake connect attempt %s/%s failed (%s); retrying in %ss",
+                attempt,
+                attempts,
+                msg.splitlines()[0][:160],
+                delay,
+            )
+            time.sleep(delay)
+        except Exception:
+            raise
+    assert last_exc is not None
+    raise last_exc
 
 
 def load_connector_doc(connector_id: str) -> dict[str, Any]:

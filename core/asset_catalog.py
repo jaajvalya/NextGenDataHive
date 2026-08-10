@@ -525,8 +525,30 @@ def connector_structure(
                 conn.get("id"),
                 exc,
             )
+            # Prefer glossary columns over failing Ask Aura / Assets outright when
+            # Snowflake is temporarily unreachable (common 250001).
+            gloss_fallback = _glossary_structure_for_connector(
+                conn, schema=schema, table=table
+            )
+            if gloss_fallback and gloss_fallback.get("columns"):
+                gloss_fallback["note"] = (
+                    "Live Snowflake DESCRIBE failed ("
+                    + str(exc).splitlines()[0][:160]
+                    + "); using glossary columns instead. "
+                    "Re-test the Snowflake connector if this keeps happening."
+                )
+                return gloss_fallback
             raise ValueError(f"Snowflake structure fetch failed: {exc}") from exc
 
+    return _glossary_structure_for_connector(conn, schema=schema, table=table)
+
+
+def _glossary_structure_for_connector(
+    conn: dict[str, Any],
+    *,
+    schema: str,
+    table: str,
+) -> dict[str, Any]:
     gloss = _glossary_assets_for_connection(str(conn.get("display_name") or ""))
     match = None
     for a in gloss:

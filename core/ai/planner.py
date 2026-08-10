@@ -210,11 +210,15 @@ def plan_query(
 
     structures, notes = fetch_structures(user, role, selected)
     if not structures:
+        detail = notes[0] if notes else "Check the connector is reachable."
         raise PlanningError(
             "Matched "
             + ", ".join(t.sql_ref for t in selected)
             + " but could not read their columns. "
-            + (notes[0] if notes else "Check the connector is reachable.")
+            + detail
+            + " Tip: open Connectors → Test on the Snowflake connection, "
+            "confirm the account id (ORG-ACCOUNT), and retry — Snowflake "
+            "sometimes needs a longer first connect."
         )
 
     head = selected[0]

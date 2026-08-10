@@ -8,15 +8,10 @@ from core.validators.base import ConnectionValidationError, norm, safe_error
 
 
 def _parse_snowflake_account(account_id: str, region: str) -> str:
-    account = account_id.strip()
-    # Allow full locators like org-account or xy12345.us-east-1
-    if "." in account or "-" in account:
-        return account
-    region = region.strip()
-    if region:
-        return f"{account}.{region}"
-    return account
+    """Same normalization as core.snowflake_catalog._parse_account."""
+    from core.snowflake_catalog import _parse_account
 
+    return _parse_account(account_id, region)
 
 def _load_private_key_bytes(pem: str, passphrase: str | None) -> bytes:
     from cryptography.hazmat.backends import default_backend
@@ -73,8 +68,8 @@ def validate_snowflake(payload: dict[str, Any]) -> dict[str, Any]:
     connect_kwargs: dict[str, Any] = {
         "account": account,
         "user": user or None,
-        "login_timeout": 25,
-        "network_timeout": 25,
+        "login_timeout": 60,
+        "network_timeout": 60,
         "client_session_keep_alive": False,
     }
 
