@@ -42,7 +42,7 @@ OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
 GOOGLE_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-GOOGLE_DEFAULT_MODEL = "gemma-3-12b-it"
+GOOGLE_DEFAULT_MODEL = "gemma-4-31b-it"
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 

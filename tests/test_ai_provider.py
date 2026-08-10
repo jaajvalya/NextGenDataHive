@@ -54,11 +54,11 @@ def test_local_ollama_is_opt_in(monkeypatch):
 def test_google_gemma_provider_is_opt_in(monkeypatch):
     monkeypatch.setenv("DATAHIVE_AI_PROVIDER", "gemma")
     monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test")
-    monkeypatch.setenv("DATAHIVE_AI_MODEL", "gemma-3-12b-it")
+    monkeypatch.setenv("DATAHIVE_AI_MODEL", "gemma-4-31b-it")
     settings = provider.load_settings()
     assert settings.provider == "google"
     assert settings.api_key == "AIza-test"
-    assert settings.model == "gemma-3-12b-it"
+    assert settings.model == "gemma-4-31b-it"
     assert isinstance(provider.get_provider(settings), provider.GoogleProvider)
 
 
@@ -71,7 +71,7 @@ def test_google_without_a_key_is_not_configured(monkeypatch):
 def test_gemma_folds_system_into_first_user_turn():
     settings = provider.AISettings(
         provider="google",
-        model="gemma-3-12b-it",
+        model="gemma-4-31b-it",
         api_key="k",
         base_url=provider.GOOGLE_DEFAULT_BASE_URL,
         timeout=30.0,

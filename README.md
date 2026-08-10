@@ -149,7 +149,7 @@ Gemini):
 DATAHIVE_AI_PROVIDER=google
 DATAHIVE_AI_API_KEY=...          # from https://aistudio.google.com/apikey
                                  # GOOGLE_API_KEY / GEMINI_API_KEY also work
-DATAHIVE_AI_MODEL=gemma-3-12b-it # or gemma-3-27b-it, gemini-2.0-flash, …
+DATAHIVE_AI_MODEL=gemma-4-31b-it # or gemma-4-26b-a4b-it, gemini-2.0-flash, …
 ```
 
 OpenAI (or any OpenAI-compatible host):
