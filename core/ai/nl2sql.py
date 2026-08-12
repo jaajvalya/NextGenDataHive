@@ -41,6 +41,9 @@ Hard rules:
     names no count and the query does not already aggregate to a few rows.
   - Prefer explicit column lists over SELECT *.
   - Order results meaningfully when the question implies a ranking.
+  - If the user asks for a chart, graph, plot, or visual, still return only
+    the underlying aggregate SELECT that produces the data — the UI will chart it.
+    Prefer two columns: a category/period label and a numeric measure, ordered.
   - State anything you had to guess in "assumptions" rather than silently choosing.
 
 Reply with JSON only:

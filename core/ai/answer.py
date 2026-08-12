@@ -30,6 +30,8 @@ constraints, checklists, outlines, or bullet scratchpads.
   - Describe only the rows you were given. If there are fewer than the question
     implies, say how many came back instead of padding the list with placeholders.
   - Plain prose. No markdown tables, no code blocks, no preamble.
+  - If the question asked for a chart or visual, briefly describe the pattern
+    in the numbers; do not say you cannot draw a chart — the UI renders it.
 """
 
 
