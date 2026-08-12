@@ -2,8 +2,8 @@
 
 Pipeline (see api/routers/ask.py):
     context  → catalog + glossary condensed into a schema card
-    planner  → pick one connector and the candidate tables, then fetch columns
-    nl2sql   → dialect-aware SQL generation
+    planner  → pick one connector and related tables (for JOINs), then fetch columns
+    nl2sql   → dialect-aware SQL generation with multi-table JOINs
     guard    → read-only / row-cap / table-exists validation
     answer   → summarise the result rows in prose
 """

@@ -36,6 +36,13 @@ Hard rules:
     DELETE, DROP, ALTER, CREATE, GRANT, COPY or CALL.
   - Use only the tables and columns listed below. Never invent a column.
   - Reference tables using exactly these names, keeping the quoting shown: {fqns}
+  - When more than one table is listed, JOIN them. Prefer INNER JOIN unless the
+    question needs unmatched rows (then LEFT JOIN). Put every join predicate in
+    ON, never in WHERE when it is a relationship key.
+  - Use the "Likely join keys" section when present. If it is missing, join on
+    shared *_ID / primary-key columns that appear in both tables. Never invent
+    a join column that is not listed.
+  - Qualify columns with table aliases when joining (e.g. o.order_id, c.name).
   - Honour the row count the question asks for ("top 5" means LIMIT 5).
     {max_rows} is only a safety ceiling; add LIMIT {max_rows} when the question
     names no count and the query does not already aggregate to a few rows.

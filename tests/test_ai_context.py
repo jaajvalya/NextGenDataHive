@@ -211,6 +211,33 @@ def test_table_details_cap_wide_tables(index):
     assert "7 more columns omitted" in details
 
 
+def test_join_hints_from_shared_and_inferred_keys(index):
+    structures = [
+        {
+            "schema": "silver",
+            "table": "orders",
+            "columns": [
+                {"name": "id", "type": "integer", "primary_key": True},
+                {"name": "customer_id", "type": "integer"},
+                {"name": "ord_amt_usd", "type": "numeric"},
+            ],
+        },
+        {
+            "schema": "silver",
+            "table": "customers",
+            "columns": [
+                {"name": "id", "type": "integer", "primary_key": True},
+                {"name": "name", "type": "text"},
+            ],
+        },
+    ]
+    hints = context.infer_join_hints(index, structures)
+    assert any("customer_id" in h and "customers" in h for h in hints)
+    details = context.render_table_details(index, structures)
+    assert "## Likely join keys" in details
+    assert "customer_id" in details
+
+
 def test_tokenize_drops_filler_and_singularises():
     tokens = context.tokenize("Show me the total orders by customers")
     assert "order" in tokens and "customer" in tokens

@@ -71,6 +71,7 @@
     "Show the 10 most recent orders",
     "Sum of orders per quarter from RAW and chart it",
     "Which customers have the highest total order value?",
+    "Join customers and orders: top 10 customers by order count",
   ];
 
   var CHART_PALETTE = [

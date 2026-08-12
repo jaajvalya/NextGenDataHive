@@ -339,6 +339,113 @@ def _render_vocabulary(index: CatalogIndex, question: str, *, limit: int = 25) -
     return hits
 
 
+def _structure_label(index: CatalogIndex, structure: dict[str, Any]) -> str:
+    schema = str(structure.get("schema") or "")
+    table = str(structure.get("table") or "")
+    ref = index.find(schema, table)
+    return ref.sql_ref if ref else f"{schema}.{table}"
+
+
+def _column_names(structure: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    for col in structure.get("columns") or []:
+        name = str(col.get("name") or "").strip()
+        if name:
+            names.add(name.lower())
+    return names
+
+
+def _join_key_priority(column: str) -> int:
+    """Lower is better — prefer explicit keys over generic shared names."""
+    col = (column or "").lower()
+    if col.endswith("_id") or col.endswith("_key") or col in {"id", "pk"}:
+        return 0
+    if col.endswith("id") and len(col) > 2:
+        return 1
+    if any(token in col for token in ("code", "number", "num", "sku")):
+        return 2
+    return 3
+
+
+def _table_stem(name: str) -> str:
+    """Rough singular stem so ORDERS_TBL / customers match CUSTOMER_ID."""
+    text = re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+    for suffix in ("tbl", "table", "dim", "fact"):
+        if text.endswith(suffix) and len(text) > len(suffix) + 2:
+            text = text[: -len(suffix)]
+    if text.endswith("ies") and len(text) > 4:
+        return text[:-3] + "y"
+    if text.endswith("ses") and len(text) > 4:
+        return text[:-2]
+    if text.endswith("s") and len(text) > 3:
+        return text[:-1]
+    return text
+
+
+def infer_join_hints(
+    index: CatalogIndex,
+    structures: list[dict[str, Any]],
+    *,
+    max_hints: int = 12,
+) -> list[str]:
+    """Suggest ON clauses from shared / name-related columns across planned tables."""
+    if len(structures) < 2:
+        return []
+
+    labeled = [
+        (_structure_label(index, structure), _column_names(structure), structure)
+        for structure in structures
+    ]
+    hints: list[tuple[int, str]] = []
+    seen: set[str] = set()
+
+    def add(priority: int, text: str) -> None:
+        if text in seen:
+            return
+        seen.add(text)
+        hints.append((priority, text))
+
+    for i, (left_label, left_cols, left_struct) in enumerate(labeled):
+        left_pks = {
+            str(col.get("name") or "").lower()
+            for col in (left_struct.get("columns") or [])
+            if col.get("primary_key") and col.get("name")
+        }
+        left_stem = _table_stem(str(left_struct.get("table") or ""))
+        for right_label, right_cols, right_struct in labeled[i + 1 :]:
+            right_pks = {
+                str(col.get("name") or "").lower()
+                for col in (right_struct.get("columns") or [])
+                if col.get("primary_key") and col.get("name")
+            }
+            right_stem = _table_stem(str(right_struct.get("table") or ""))
+            shared = left_cols & right_cols
+            for col in sorted(shared, key=_join_key_priority):
+                priority = _join_key_priority(col)
+                if col in left_pks or col in right_pks:
+                    priority = 0
+                add(priority, f"- {left_label}.{col} = {right_label}.{col}")
+
+            # Soft match: orders.customer_id ↔ customers.id
+            for col in sorted(left_cols):
+                if not col.endswith("_id"):
+                    continue
+                stem = col[:-3]
+                if stem and stem == right_stem and ("id" in right_cols or right_pks):
+                    right_key = sorted(right_pks)[0] if right_pks else "id"
+                    add(0, f"- {left_label}.{col} = {right_label}.{right_key}  (inferred)")
+            for col in sorted(right_cols):
+                if not col.endswith("_id"):
+                    continue
+                stem = col[:-3]
+                if stem and stem == left_stem and ("id" in left_cols or left_pks):
+                    left_key = sorted(left_pks)[0] if left_pks else "id"
+                    add(0, f"- {right_label}.{col} = {left_label}.{left_key}  (inferred)")
+
+    hints.sort(key=lambda item: (item[0], item[1]))
+    return [text for _, text in hints[:max_hints]]
+
+
 def render_table_details(
     index: CatalogIndex,
     structures: list[dict[str, Any]],
@@ -385,4 +492,8 @@ def render_table_details(
             lines.append("  -- (no column metadata available for this table)")
         blocks.append("\n".join(lines))
 
-    return "\n\n".join(blocks)
+    body = "\n\n".join(blocks)
+    join_hints = infer_join_hints(index, structures)
+    if join_hints:
+        body += "\n\n## Likely join keys\n" + "\n".join(join_hints)
+    return body

@@ -1,0 +1,46 @@
+"""Planner should pull join partners when the question names multiple entities."""
+from __future__ import annotations
+
+from core.ai.context import TableRef
+from core.ai.planner import _expand_related_tables
+
+
+def _ref(table: str, schema: str = "silver", connector_id: str = "pg") -> TableRef:
+    return TableRef(
+        connector_id=connector_id,
+        connector_name="Local",
+        platform="postgres",
+        database="db",
+        schema=schema,
+        table=table,
+        asset_type="Table",
+        fqn=f"{schema}.{table}",
+        queryable=True,
+        terms=(),
+    )
+
+
+def test_expand_adds_customers_when_question_mentions_them():
+    orders = _ref("orders")
+    customers = _ref("customers")
+    products = _ref("products")
+    pool = [orders, customers, products]
+    expanded = _expand_related_tables(
+        "Which customers have the highest total order value?",
+        [orders],
+        pool,
+    )
+    assert orders in expanded
+    assert customers in expanded
+    assert products not in expanded
+
+
+def test_expand_keeps_multi_table_selection():
+    orders = _ref("orders")
+    customers = _ref("customers")
+    expanded = _expand_related_tables(
+        "top customers by orders",
+        [orders, customers],
+        [orders, customers, _ref("products")],
+    )
+    assert expanded == [orders, customers]

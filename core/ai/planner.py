@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .. import asset_catalog
-from .context import CatalogIndex, TableRef, rank_tables, render_catalog_card
+from .context import CatalogIndex, TableRef, rank_tables, render_catalog_card, tokenize
 from .errors import PlanningError
 from .provider import LLMProvider, parse_json_response
 
@@ -31,7 +31,12 @@ Rules:
   - Only choose from connectors marked "can run SQL".
   - Only name tables that appear verbatim in the catalog. Never invent one.
   - All chosen tables must belong to the same connector.
-  - Include tables needed only for joins or filters, not just the ones named in the question.
+  - Prefer multiple related tables when the question combines entities
+    (customers + orders, products + sales, users + events). Include every table
+    needed for JOINs or filters, not only the fact table named in the question.
+  - Typical pattern: fact/transaction table plus dimension/lookup tables
+    (customers, products, regions, dates) that supply names or attributes.
+  - List the driving fact table first, then join partners.
   - If nothing in the catalog can answer the question, set answerable to false and explain why.
 
 Reply with JSON only:
@@ -169,6 +174,53 @@ def fetch_structures(
     return structures, notes
 
 
+def _expand_related_tables(
+    question: str,
+    selected: list[TableRef],
+    pool: list[TableRef],
+) -> list[TableRef]:
+    """Pull in sibling tables the question names so JOINs have both sides.
+
+    The model sometimes returns only the fact table. If the question also
+    mentions customers/products/etc. that exist on the same connector, add them.
+    """
+    if not selected or len(selected) >= MAX_TABLES_PER_PLAN:
+        return selected
+
+    head = selected[0]
+    wanted = tokenize(question)
+    if not wanted:
+        return selected
+
+    siblings = [
+        t for t in pool if t.connector_id == head.connector_id and t not in selected
+    ]
+    if not siblings:
+        return selected
+
+    scored: list[tuple[int, int, str, TableRef]] = []
+    for ref in siblings:
+        haystack = tokenize(f"{ref.table} {ref.schema} {' '.join(ref.terms)}")
+        overlap = len(wanted & haystack)
+        if overlap <= 0:
+            continue
+        same_schema = 0 if ref.schema.lower() == head.schema.lower() else 1
+        scored.append((-overlap, same_schema, ref.fqn.lower(), ref))
+    scored.sort()
+
+    expanded = list(selected)
+    for *_, ref in scored:
+        if len(expanded) >= MAX_TABLES_PER_PLAN:
+            break
+        expanded.append(ref)
+    if len(expanded) > len(selected):
+        _log.info(
+            "planner expanded tables for joins: %s",
+            ", ".join(t.fqn for t in expanded),
+        )
+    return expanded
+
+
 def plan_query(
     user: str,
     role: str | None,
@@ -207,6 +259,8 @@ def plan_query(
             "Could not match that question to any table in the catalog. "
             "Try naming the schema or table you mean."
         )
+
+    selected = _expand_related_tables(question, selected, pool)
 
     structures, notes = fetch_structures(user, role, selected)
     if not structures:
