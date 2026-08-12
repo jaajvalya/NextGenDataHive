@@ -343,16 +343,8 @@
       .filter(Boolean);
     if (points.length < 1) return null;
 
-    var force = wantsChart(question);
-    var aggregateLike =
-      points.length <= 24 &&
-      label.uniqueCount <= 24 &&
-      (label.isPeriod ||
-        /\b(per|by|group|quarter|month|year|category|channel|status|region)\b/i.test(
-          question || ""
-        ) ||
-        valueCols.length >= 1);
-    if (!force && !aggregateLike) return null;
+    // Charts only when the user asks for one — never infer from result shape alone.
+    if (!wantsChart(question)) return null;
 
     var type = "bar";
     if (
