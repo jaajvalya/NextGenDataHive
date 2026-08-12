@@ -159,7 +159,7 @@
       <section class="acl-hero" aria-label="Ask Aura">
         <div class="acl-hero-copy">
           <h1>Ask Aura - Intelligent information platform</h1>
-          <p>Ask a question in plain English. Aura picks the connector, reads the schema it needs, and runs a read-only query.</p>
+          <p>Ask in plain English, then keep going with follow-ups. Aura picks the connector, reads the schema it needs, and runs a read-only query.</p>
         </div>
         <div class="acl-hero-mark" aria-hidden="true"></div>
       </section>
@@ -177,6 +177,7 @@
               </select>
               <div class="ask-spacer"></div>
               <span class="ask-status" id="askStatus" aria-live="polite"></span>
+              <button type="button" class="btn btn-ghost hidden" id="askNewChatBtn">New conversation</button>
               <button type="button" class="btn btn-ghost" id="askPreviewBtn">Preview SQL</button>
               <button type="button" class="btn btn-primary" id="askRunBtn">Ask</button>
             </div>
@@ -185,11 +186,14 @@
         </div>
       </section>
 
+      <div id="askThread" class="ask-thread hidden" aria-label="Earlier answers"></div>
+
       <div id="askError" class="err hidden" role="alert"></div>
 
       <section class="card ask-card hidden" id="askAnswerCard" aria-live="polite">
         <div class="hd"><h2>Answer</h2></div>
         <div class="bd">
+          <p class="ask-turn-question hidden" id="askTurnQuestion"></p>
           <p class="ask-answer" id="askAnswer"></p>
           <div class="ask-meta" id="askMeta"></div>
           <div class="ask-sources" id="askSources"></div>
@@ -214,6 +218,21 @@
           </div>
 
           <div id="askResults"></div>
+
+          <div class="ask-followup" id="askFollowUp">
+            <div class="ask-followup-hd">
+              <h3>Ask a follow-up</h3>
+              <p>Refine this answer — Aura keeps the tables and filters from above.</p>
+            </div>
+            <div class="ask-suggestions" id="askFollowUpChips"></div>
+            <textarea id="askFollowUpInput" class="ask-input ask-followup-input" rows="2" spellcheck="false"
+                      placeholder="e.g. Break that down by region, or chart it"
+                      aria-label="Follow-up question"></textarea>
+            <div class="ask-controls">
+              <div class="ask-spacer"></div>
+              <button type="button" class="btn btn-primary" id="askFollowUpBtn">Ask again</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -1143,7 +1162,7 @@
 <script src="js/save-connector.js"></script>
 <script src="js/assets.js"></script>
 <script src="js/sql-explorer.js"></script>
-<script src="js/ask.js"></script>
+<script src="js/ask.js?v=followup2"></script>
 <script src="js/reporting.js"></script>
 <script src="js/etl_runtime.js"></script>
 <script src="js/app.js"></script>

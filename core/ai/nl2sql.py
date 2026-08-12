@@ -7,6 +7,7 @@ from typing import Any
 
 from .context import CatalogIndex, render_table_details
 from .errors import GenerationError
+from .history import effective_question, render_history
 from .planner import QueryPlan
 from .provider import LLMProvider, parse_json_response
 
@@ -51,6 +52,12 @@ Hard rules:
   - If the user asks for a chart, graph, plot, or visual, still return only
     the underlying aggregate SELECT that produces the data — the UI will chart it.
     Prefer two columns: a category/period label and a numeric measure, ordered.
+  - When prior conversation is provided, the latest question is a follow-up.
+    Start from the previous SQL and apply the refinement (LIMIT, date window,
+    GROUP BY, ordering, etc.). Never refuse a short follow-up as vague.
+  - Only reference tables listed under "## Tables". If prior SQL names other
+    tables, rewrite those references to the listed tables — never copy a table
+    that is not listed.
   - State anything you had to guess in "assumptions" rather than silently choosing.
 
 Reply with JSON only:
@@ -79,6 +86,7 @@ def generate_sql(
     index: CatalogIndex,
     plan: QueryPlan,
     max_rows: int,
+    history: list[Any] | None = None,
 ) -> GeneratedQuery:
     """Ask the model for SQL against the planned tables."""
     fqns = ", ".join(ref.sql_ref for ref in plan.tables)
@@ -87,7 +95,24 @@ def generate_sql(
     system = _SYSTEM_PROMPT.format(
         dialect=dialect_for(plan.platform), fqns=fqns, max_rows=max_rows
     )
-    user_parts = [f"Question: {question}", "", "## Tables", details]
+    prior = render_history(history)
+    resolved = effective_question(question, history)
+    user_parts: list[str] = []
+    if prior:
+        user_parts += [
+            prior,
+            "",
+            "## Current question",
+            question,
+            "",
+            "## Resolved intent",
+            resolved,
+            "",
+            "## Tables",
+            details,
+        ]
+    else:
+        user_parts += [f"Question: {question}", "", "## Tables", details]
     if plan.notes:
         user_parts += ["", "## Caveats", *[f"- {note}" for note in plan.notes]]
 

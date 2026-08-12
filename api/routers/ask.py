@@ -21,6 +21,7 @@ from core.ai import answer as ai_answer
 from core.ai import context as ai_context
 from core.ai import guard, nl2sql, planner, provider
 from core.ai.errors import AskError
+from core.ai.history import expand_followup
 
 router = APIRouter(tags=["ask"])
 
@@ -70,22 +71,39 @@ def _build_query(
     llm = provider.get_provider(settings)
     max_rows = min(body.max_rows, settings.max_rows)
 
-    index = ai_context.build_index(user, role=role, connector_id=body.connector_id)
+    history = list(body.history or [])
+    # Prefer the connector from the last turn when the UI left Source on Auto.
+    connector_id = body.connector_id
+    if not connector_id and history:
+        connector_id = getattr(history[-1], "connector_id", None) or (
+            history[-1].get("connector_id") if isinstance(history[-1], dict) else None
+        )
+    # Rewrite "Chart that" / "top 10" into a full question using prior intent.
+    raw_question = body.question
+    question = expand_followup(raw_question, history) or raw_question
+    index = ai_context.build_index(user, role=role, connector_id=connector_id)
     plan = planner.plan_query(
         user,
         role,
-        body.question,
+        question,
         provider=llm,
         index=index,
-        connector_id=body.connector_id,
+        connector_id=connector_id,
+        history=history,
+        raw_question=raw_question,
     )
     generated = nl2sql.generate_sql(
-        body.question, provider=llm, index=index, plan=plan, max_rows=max_rows
+        question,
+        provider=llm,
+        index=index,
+        plan=plan,
+        max_rows=max_rows,
+        history=history,
     )
     safe_sql = guard.enforce(generated.sql, plan.tables, max_rows=max_rows)
 
     payload = {
-        "question": body.question,
+        "question": question,
         "sql": safe_sql,
         "connector_id": plan.connector_id,
         "connector_name": plan.connector_name,

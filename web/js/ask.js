@@ -63,8 +63,15 @@
     health: null,
     connectorsLoaded: false,
     last: null,
+    /** @type {Array<{question:string,sql?:string,answer?:string,connector_id?:string,row_count?:number,sources?:Array}>} */
+    thread: [],
     busy: false,
   };
+
+  var STARTER_PLACEHOLDER =
+    "e.g. Which 10 customers ordered the most last quarter?";
+  var FOLLOWUP_PLACEHOLDER =
+    "Ask a follow-up — e.g. break that down by region, or chart it";
 
   var SUGGESTIONS = [
     "How many rows are in each table?",
@@ -112,29 +119,253 @@
 
   function setBusy(busy) {
     state.busy = busy;
-    ["#askRunBtn", "#askPreviewBtn"].forEach(function (sel) {
-      var btn = $(sel);
-      if (btn) btn.disabled = busy;
+    ["#askRunBtn", "#askPreviewBtn", "#askFollowUpBtn", "#askNewChatBtn"].forEach(
+      function (sel) {
+        var btn = $(sel);
+        if (btn) btn.disabled = busy;
+      }
+    );
+  }
+
+  function hasConversation() {
+    return !!(state.last || (state.thread && state.thread.length));
+  }
+
+  function sourceFqns(payload) {
+    return ((payload && payload.sources) || [])
+      .map(function (s) {
+        return s.fqn || s.table || "";
+      })
+      .filter(Boolean);
+  }
+
+  function historyPayload() {
+    var turns = state.thread.slice();
+    if (state.last && state.last._question) {
+      turns.push({
+        question: state.last._question,
+        sql: state.last.sql || null,
+        answer: (state.last.answer || state.last.explanation || "").slice(0, 500),
+        connector_id: state.last.connector_id || null,
+        sources: sourceFqns(state.last),
+      });
+    }
+    return turns.slice(-6).map(function (t) {
+      return {
+        question: t.question,
+        sql: t.sql || null,
+        answer: t.answer || null,
+        connector_id: t.connector_id || null,
+        sources: t.sources || [],
+      };
     });
+  }
+
+  function fillQuestion(text, focusFollowUp) {
+    var main = $("#askQuestion");
+    var follow = $("#askFollowUpInput");
+    if (main) main.value = text;
+    if (follow) follow.value = text;
+    var target = focusFollowUp && follow ? follow : main;
+    if (target) {
+      target.focus();
+      target.setSelectionRange(target.value.length, target.value.length);
+    }
   }
 
   function renderSuggestions() {
     var wrap = $("#askSuggestions");
-    if (!wrap || wrap.childElementCount) return;
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (hasConversation()) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    wrap.classList.remove("hidden");
     SUGGESTIONS.forEach(function (text) {
       var chip = document.createElement("button");
       chip.type = "button";
       chip.className = "ask-chip";
       chip.textContent = text;
       chip.addEventListener("click", function () {
-        var input = $("#askQuestion");
-        if (input) {
-          input.value = text;
-          input.focus();
-        }
+        fillQuestion(text, false);
       });
       wrap.appendChild(chip);
     });
+  }
+
+  function isChartOnlyFollowUp(question) {
+    return /^(chart|graph|plot)(\s+(that|it|this|these|those))?\s*$/i.test(
+      (question || "").trim()
+    );
+  }
+
+  function expandFollowUpQuestion(question) {
+    var prior = state.last && state.last._question;
+    if (!prior) return question;
+    var q = (question || "").trim();
+    var base = String(prior).replace(/[.?!\s]+$/g, "");
+    if (isChartOnlyFollowUp(q)) {
+      return base + ". Chart the result.";
+    }
+    var top = q.match(/^(?:show\s+only\s+)?(?:the\s+)?top\s+(\d+)\s*$/i);
+    if (top) return base + ". Show only the top " + top[1] + ".";
+    var days = q.match(/^filter\s+to(?:\s+the)?\s+last\s+(\d+)\s+days\s*$/i);
+    if (days) return base + ". Filter to the last " + days[1] + " days.";
+    var by = q.match(/^break\s+(?:that|it)\s+down\s+by\s+(.+)$/i);
+    if (by) return base + ". Break it down by " + by[1].trim() + ".";
+    return question;
+  }
+
+  function followUpIdeas(payload, question) {
+    var ideas = [];
+    var cols = payload.columns || [];
+    var categorical = cols.filter(function (name) {
+      return !/\b(id|amt|amount|qty|quantity|count|total|sum|avg|price|revenue)\b/i.test(
+        name
+      );
+    });
+    categorical.slice(0, 2).forEach(function (col) {
+      ideas.push("Break that down by " + col);
+    });
+    if (!wantsChart(question || "")) {
+      ideas.push("Chart that");
+    }
+    ideas.push("Show only the top 10");
+    ideas.push("Filter to the last 90 days");
+    if (payload.sources && payload.sources.length === 1) {
+      ideas.push("Which columns are on " + (payload.sources[0].table || "that table") + "?");
+    }
+    // Dedupe while preserving order
+    var seen = {};
+    return ideas.filter(function (text) {
+      var key = text.toLowerCase();
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    }).slice(0, 5);
+  }
+
+  function renderFollowUpChips(payload, question) {
+    var wrap = $("#askFollowUpChips");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    followUpIdeas(payload, question).forEach(function (text) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "ask-chip";
+      chip.textContent = text;
+      chip.addEventListener("click", function () {
+        fillQuestion(text, true);
+        submit(true, true);
+      });
+      wrap.appendChild(chip);
+    });
+  }
+
+  function renderThread() {
+    var wrap = $("#askThread");
+    var newBtn = $("#askNewChatBtn");
+    if (newBtn) newBtn.classList.toggle("hidden", !hasConversation());
+    if (!wrap) return;
+    if (!state.thread.length) {
+      wrap.classList.add("hidden");
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.classList.remove("hidden");
+    wrap.innerHTML = state.thread
+      .map(function (turn, idx) {
+        var answer = turn.answer || "";
+        if (answer.length > 220) answer = answer.slice(0, 220) + "…";
+        var meta = [];
+        if (typeof turn.row_count === "number") {
+          meta.push(turn.row_count + (turn.row_count === 1 ? " row" : " rows"));
+        }
+        if (turn.sources && turn.sources.length) {
+          meta.push(
+            turn.sources
+              .map(function (s) {
+                if (typeof s === "string") return s;
+                return s.table || s.fqn || "";
+              })
+              .filter(Boolean)
+              .join(", ")
+          );
+        }
+        return (
+          '<article class="ask-thread-turn">' +
+          '<p class="ask-thread-q"><span class="ask-thread-label">You</span> ' +
+          escapeHtml(turn.question || "") +
+          "</p>" +
+          (answer
+            ? '<p class="ask-thread-a"><span class="ask-thread-label">Aura</span> ' +
+              escapeHtml(answer) +
+              "</p>"
+            : "") +
+          (meta.length
+            ? '<p class="ask-thread-meta">' + escapeHtml(meta.join(" · ")) + "</p>"
+            : "") +
+          '<button type="button" class="ask-thread-reuse" data-thread-idx="' +
+          idx +
+          '">Ask from here</button>' +
+          "</article>"
+        );
+      })
+      .join("");
+    wrap.querySelectorAll(".ask-thread-reuse").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var idx = Number(btn.getAttribute("data-thread-idx"));
+        var turn = state.thread[idx];
+        if (!turn) return;
+        fillQuestion(turn.question, true);
+      });
+    });
+  }
+
+  function archiveLastTurn() {
+    if (!state.last || !state.last._question) return;
+    state.thread.push({
+      question: state.last._question,
+      sql: state.last.sql || "",
+      answer: state.last.answer || state.last.explanation || "",
+      connector_id: state.last.connector_id || null,
+      row_count: state.last.row_count,
+      sources: sourceFqns(state.last),
+    });
+    if (state.thread.length > 8) {
+      state.thread = state.thread.slice(-8);
+    }
+  }
+
+  function resetConversation() {
+    state.thread = [];
+    state.last = null;
+    chartState.points = null;
+    var card = $("#askAnswerCard");
+    if (card) card.classList.add("hidden");
+    var chart = $("#askChartBlock");
+    if (chart) chart.classList.add("hidden");
+    ["#askQuestion", "#askFollowUpInput"].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.value = "";
+    });
+    var main = $("#askQuestion");
+    if (main) main.placeholder = STARTER_PLACEHOLDER;
+    showError("");
+    setStatus("");
+    renderThread();
+    renderSuggestions();
+    if (main) main.focus();
+  }
+
+  function syncComposerMode() {
+    var main = $("#askQuestion");
+    if (main) {
+      main.placeholder = hasConversation() ? FOLLOWUP_PLACEHOLDER : STARTER_PLACEHOLDER;
+    }
+    renderSuggestions();
+    renderThread();
   }
 
   function renderSources(payload) {
@@ -651,9 +882,19 @@
   }
 
   function render(payload, question) {
-    state.last = payload;
     var card = $("#askAnswerCard");
     if (card) card.classList.remove("hidden");
+
+    var qEl = $("#askTurnQuestion");
+    if (qEl) {
+      if (question) {
+        qEl.textContent = question;
+        qEl.classList.remove("hidden");
+      } else {
+        qEl.textContent = "";
+        qEl.classList.add("hidden");
+      }
+    }
 
     var answerEl = $("#askAnswer");
     if (answerEl) {
@@ -669,25 +910,97 @@
     renderSources(payload);
     renderAssumptions(payload);
     renderResults(payload);
-    renderChart(question || (state.last && state.last._question) || "", payload);
+    renderChart(question || "", payload);
+    renderFollowUpChips(payload, question);
+    syncComposerMode();
+
+    // Keep the same source for the rest of the conversation when Auto was used.
+    var connectorSel = $("#askConnectorSelect");
+    if (
+      connectorSel &&
+      !connectorSel.value &&
+      payload.connector_id &&
+      Array.prototype.some.call(connectorSel.options, function (opt) {
+        return opt.value === payload.connector_id;
+      })
+    ) {
+      connectorSel.value = payload.connector_id;
+    }
+
+    var follow = $("#askFollowUpInput");
+    if (follow) {
+      follow.value = "";
+      follow.focus();
+    }
+    if (card && typeof card.scrollIntoView === "function") {
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
-  async function submit(execute) {
+  async function submit(execute, fromFollowUp) {
     if (state.busy) return;
+    var follow = $("#askFollowUpInput");
     var input = $("#askQuestion");
-    var question = input ? input.value.trim() : "";
-    if (question.length < 3) {
+    var rawQuestion = "";
+    if (fromFollowUp && follow && follow.value.trim()) {
+      rawQuestion = follow.value.trim();
+    } else if (input && input.value.trim()) {
+      rawQuestion = input.value.trim();
+    } else if (follow && follow.value.trim()) {
+      rawQuestion = follow.value.trim();
+    }
+    if (rawQuestion.length < 3) {
       showError("Type a question first.");
       return;
     }
+
+    // "Chart that" uses the rows already on screen — no new SQL round-trip.
+    if (execute && isChartOnlyFollowUp(rawQuestion) && state.last && state.last.executed) {
+      showError("");
+      var chartQuestion = expandFollowUpQuestion(rawQuestion);
+      if (input) input.value = chartQuestion;
+      if (follow) follow.value = "";
+      renderChart(chartQuestion, state.last);
+      renderFollowUpChips(state.last, chartQuestion);
+      setStatus("Charting the previous result.");
+      var chartBlock = $("#askChartBlock");
+      if (chartBlock && !chartBlock.classList.contains("hidden") && chartBlock.scrollIntoView) {
+        chartBlock.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      } else if (wantsChart(chartQuestion)) {
+        var wrap = $("#askResults");
+        if (wrap && !wrap.querySelector(".ask-chart-miss")) {
+          wrap.insertAdjacentHTML(
+            "afterbegin",
+            '<p class="sql-results-note ask-chart-miss">Could not build a chart from this result — need a category/period column and a numeric measure.</p>'
+          );
+        }
+      }
+      return;
+    }
+
+    // Expand chip text using the prior question so the request always has a
+    // subject, even if history is dropped or an old API build is running.
+    var history = historyPayload();
+    var questionForApi = history.length
+      ? expandFollowUpQuestion(rawQuestion)
+      : rawQuestion;
     showError("");
     setBusy(true);
-    setStatus(execute ? "Thinking…" : "Generating SQL…");
+    setStatus(
+      history.length
+        ? execute
+          ? "Thinking about your follow-up…"
+          : "Generating follow-up SQL…"
+        : execute
+          ? "Thinking…"
+          : "Generating SQL…"
+    );
 
     var connectorSel = $("#askConnectorSelect");
     var body = {
-      question: question,
+      question: questionForApi,
       connector_id: connectorSel && connectorSel.value ? connectorSel.value : null,
+      history: history,
     };
 
     try {
@@ -702,9 +1015,14 @@
       var payload = execute
         ? await postJson("/api/ask", body)
         : await postJson("/api/ask/sql", body);
+      archiveLastTurn();
+      var question = payload.question || expandFollowUpQuestion(rawQuestion);
       payload._question = question;
+      state.last = payload;
+      if (input) input.value = question;
+      if (follow) follow.value = "";
       render(payload, question);
-      setStatus(execute ? "Done." : "SQL ready — review before running.");
+      setStatus(execute ? "Done — ask a follow-up below." : "SQL ready — review before running.");
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (msg === "Failed to fetch" || msg.indexOf("NetworkError") !== -1) {
@@ -745,21 +1063,38 @@
     state.bound = true;
 
     var runBtn = $("#askRunBtn");
-    if (runBtn) runBtn.addEventListener("click", function () { submit(true); });
+    if (runBtn) runBtn.addEventListener("click", function () { submit(true, false); });
 
     var previewBtn = $("#askPreviewBtn");
-    if (previewBtn) previewBtn.addEventListener("click", function () { submit(false); });
+    if (previewBtn) previewBtn.addEventListener("click", function () { submit(false, false); });
 
-    var input = $("#askQuestion");
-    if (input) {
-      input.addEventListener("keydown", function (e) {
+    var followBtn = $("#askFollowUpBtn");
+    if (followBtn) {
+      followBtn.addEventListener("click", function () {
+        submit(true, true);
+      });
+    }
+
+    var newBtn = $("#askNewChatBtn");
+    if (newBtn) {
+      newBtn.addEventListener("click", function () {
+        resetConversation();
+      });
+    }
+
+    function bindEnter(sel, fromFollowUp) {
+      var el = $(sel);
+      if (!el) return;
+      el.addEventListener("keydown", function (e) {
         // Enter sends; Shift+Enter adds a line.
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
-          submit(true);
+          submit(true, fromFollowUp);
         }
       });
     }
+    bindEnter("#askQuestion", false);
+    bindEnter("#askFollowUpInput", true);
 
     var openBtn = $("#askOpenSqlBtn");
     if (openBtn) {

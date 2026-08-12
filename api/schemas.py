@@ -14,12 +14,23 @@ class SqlQueryIn(BaseModel):
     connector_id: str | None = None
 
 
+class AskHistoryTurn(BaseModel):
+    """One prior Ask turn so follow-ups can reuse context."""
+
+    question: str = Field(..., min_length=1, max_length=2000)
+    sql: str | None = Field(default=None, max_length=20_000)
+    answer: str | None = Field(default=None, max_length=4000)
+    connector_id: str | None = None
+    sources: list[str] = Field(default_factory=list, max_length=12)
+
+
 class AskSqlIn(BaseModel):
     """Generate SQL for a question without running it."""
 
     question: str = Field(..., min_length=3, max_length=2000)
     connector_id: str | None = None
     max_rows: int = Field(default=500, ge=1, le=10_000)
+    history: list[AskHistoryTurn] = Field(default_factory=list, max_length=8)
 
 
 class AskIn(AskSqlIn):

@@ -259,3 +259,125 @@ def test_health_reports_whether_the_tab_should_appear(monkeypatch, client):
         ask_router.provider, "provider_status", lambda: {"enabled": True, "model": "test-model"}
     )
     assert client.get("/api/ask/health").json()["enabled"] is True
+
+
+def test_follow_up_history_is_injected_into_prompts(scripted, client):
+    llm = scripted["install"](
+        plan_reply(["silver.orders"]),
+        sql_reply(
+            "SELECT id, ord_amt_usd FROM silver.orders WHERE ord_amt_usd > 100 ORDER BY ord_amt_usd DESC"
+        ),
+        "Orders over 100.",
+    )
+    res = client.post(
+        "/api/ask",
+        json={
+            # Longer follow-up still routes through the planner (not a chip shortcut).
+            "question": "Only keep orders over 100 and sort by amount",
+            "history": [
+                {
+                    "question": "What is our largest order?",
+                    "sql": "SELECT id, ord_amt_usd FROM silver.orders ORDER BY ord_amt_usd DESC",
+                    "answer": "The largest order is 250 USD.",
+                    "connector_id": "local-postgres",
+                    "sources": ["silver.orders"],
+                }
+            ],
+        },
+    )
+    assert res.status_code == 200, res.text
+    planning_prompt, generation_prompt = llm.prompts[0], llm.prompts[1]
+    assert "Prior conversation" in planning_prompt
+    assert "What is our largest order?" in planning_prompt
+    assert "Prior conversation" in generation_prompt
+    assert "follow-up" in generation_prompt.lower()
+    assert "Resolved intent" in generation_prompt
+
+
+def test_follow_up_recovers_when_model_calls_it_unanswerable(scripted, client):
+    """Short chips like 'top 10' must not fail just because the planner refuses."""
+    llm = scripted["install"](
+        sql_reply(
+            "SELECT id, ord_amt_usd FROM silver.orders ORDER BY ord_amt_usd DESC LIMIT 10"
+        ),
+        "Here are the top 10.",
+    )
+    res = client.post(
+        "/api/ask",
+        json={
+            "question": "Show only the top 10",
+            "history": [
+                {
+                    "question": "What is our largest order?",
+                    "sql": "SELECT id, ord_amt_usd FROM silver.orders ORDER BY ord_amt_usd DESC LIMIT 500",
+                    "answer": "The largest order is 250 USD.",
+                    "connector_id": "local-postgres",
+                    "sources": ["silver.orders"],
+                }
+            ],
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["executed"] is True
+    assert "LIMIT 10" in body["sql"]
+    # Expanded using prior intent; planner skipped because it is a short follow-up.
+    assert "largest order" in body["question"].lower()
+    assert len(llm.prompts) == 2  # nl2sql + answer; no planner call
+
+
+def test_chart_that_follow_up_is_expanded_and_skips_planner(scripted, client):
+    llm = scripted["install"](
+        sql_reply(
+            "SELECT id, ord_amt_usd FROM silver.orders ORDER BY ord_amt_usd DESC LIMIT 500"
+        ),
+        "Chart-ready totals.",
+    )
+    res = client.post(
+        "/api/ask",
+        json={
+            "question": "Chart that",
+            "history": [
+                {
+                    "question": "Sum of orders per quarter",
+                    "sql": "SELECT id, ord_amt_usd FROM silver.orders",
+                    "connector_id": "local-postgres",
+                    "sources": ["silver.orders"],
+                }
+            ],
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert "Chart the result" in res.json()["question"]
+    assert "Sum of orders per quarter" in res.json()["question"]
+    assert len(llm.prompts) == 2
+
+
+def test_filter_last_90_days_follow_up_never_refused(scripted, client):
+    llm = scripted["install"](
+        sql_reply(
+            "SELECT id, ord_amt_usd FROM silver.orders "
+            "WHERE order_date >= CURRENT_DATE - INTERVAL '90 days' LIMIT 500"
+        ),
+        "Orders from the last 90 days.",
+    )
+    res = client.post(
+        "/api/ask",
+        json={
+            "question": "Filter to the last 90 days",
+            "history": [
+                {
+                    "question": "Which customers have the highest total order value?",
+                    "sql": "SELECT id, ord_amt_usd FROM silver.orders",
+                    "connector_id": "local-postgres",
+                    "sources": ["silver.orders"],
+                }
+            ],
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "90 days" in body["question"]
+    assert "highest total order value" in body["question"].lower()
+    assert "underspecified" not in (body.get("selection_reason") or "").lower()
+    assert len(llm.prompts) == 2  # no planner call

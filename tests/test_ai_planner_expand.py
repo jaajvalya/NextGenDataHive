@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from core.ai.context import TableRef
-from core.ai.planner import _expand_related_tables
+from core.ai.planner import _expand_related_tables, _tables_from_history
 
 
 def _ref(table: str, schema: str = "silver", connector_id: str = "pg") -> TableRef:
@@ -44,3 +44,24 @@ def test_expand_keeps_multi_table_selection():
         [orders, customers, _ref("products")],
     )
     assert expanded == [orders, customers]
+
+
+def test_tables_recovered_from_prior_sql_for_follow_ups():
+    orders = _ref("orders")
+    customers = _ref("customers")
+    pool = [orders, customers, _ref("products")]
+    recovered = _tables_from_history(
+        [
+            {
+                "question": "highest order value by customer",
+                "sql": (
+                    'SELECT c.name, SUM(o.ord_amt_usd) FROM silver.customers c '
+                    "JOIN silver.orders o ON o.customer_id = c.id GROUP BY 1"
+                ),
+                "sources": ["silver.customers", "silver.orders"],
+            }
+        ],
+        pool,
+    )
+    assert orders in recovered
+    assert customers in recovered
