@@ -73,7 +73,7 @@
     </div>
     <div class="grp bottom">
       <a href="#"><span class="ic" aria-hidden="true"><i data-lucide="headset"></i></span>Support</a>
-      <a href="#"><span class="ic" aria-hidden="true"><i data-lucide="file-text"></i></span>Docs</a>
+      <a href="#" data-view="docs"><span class="ic" aria-hidden="true"><i data-lucide="file-text"></i></span>Docs</a>
     </div>
   </nav>
 
@@ -1155,6 +1155,791 @@
     </div>
   </section>
 </div>
+
+<!-- ===== Docs view ===== -->
+<div id="view-docs" class="docs-pane hidden">
+
+  <section class="acl-hero" aria-label="Developer Docs">
+    <div class="acl-hero-copy">
+      <h1>Developer Docs</h1>
+      <p>Guides, commands, and reference for the DataHive platform — including the local AWS playground for Glue, EMR, Lambda, Kinesis, S3, and Apache Iceberg.</p>
+    </div>
+    <div class="acl-hero-mark" aria-hidden="true"></div>
+  </section>
+
+  <!-- Tab bar -->
+  <div class="docs-tabs" role="tablist" aria-label="Documentation sections">
+    <button type="button" class="docs-tab active" role="tab" aria-selected="true"  data-docs-tab="overview">Overview</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="quickstart">Quick Start</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="services">Services</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="workflows">Workflows</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="commands">Commands</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="iceberg">Iceberg &amp; Nessie</button>
+    <button type="button" class="docs-tab"        role="tab" aria-selected="false" data-docs-tab="limits">Limitations</button>
+  </div>
+
+  <!-- ── Tab: Overview ─────────────────────────────────────────────────────── -->
+  <div class="docs-section" id="docsTabOverview" data-docs-section="overview">
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>What the playground emulates</h2>
+        <span class="docs-badge">Local Stack</span>
+      </div>
+      <div class="docs-card-bd">
+        <p>The local playground replaces real AWS infrastructure with open-source Docker containers so you can develop and test data pipelines without an AWS account or internet access.</p>
+        <div class="docs-arch">
+          <div class="docs-arch-row">
+            <div class="docs-arch-box ab-s3">
+              <span class="ab-label">S3 &rarr;</span>
+              <span class="ab-name">MinIO</span>
+              <span class="ab-port">:9000 API &nbsp;·&nbsp; :9001 Console</span>
+            </div>
+            <div class="docs-arch-box ab-kinesis">
+              <span class="ab-label">Kinesis &rarr;</span>
+              <span class="ab-name">LocalStack CE</span>
+              <span class="ab-port">:4566</span>
+            </div>
+            <div class="docs-arch-box ab-lambda">
+              <span class="ab-label">Lambda &rarr;</span>
+              <span class="ab-name">LocalStack CE + SAM CLI</span>
+              <span class="ab-port">:4566 &nbsp;·&nbsp; :3001 (SAM API)</span>
+            </div>
+          </div>
+          <div class="docs-arch-connector">&#8595;</div>
+          <div class="docs-arch-row">
+            <div class="docs-arch-box ab-glue">
+              <span class="ab-label">Glue &rarr;</span>
+              <span class="ab-name">AWS Glue Docker (Glue 4.0)</span>
+              <span class="ab-port">:8888 JupyterLab</span>
+            </div>
+            <div class="docs-arch-box ab-emr">
+              <span class="ab-label">EMR &rarr;</span>
+              <span class="ab-name">Apache Spark (bitnami)</span>
+              <span class="ab-port">:8080 UI &nbsp;·&nbsp; :7077 Cluster</span>
+            </div>
+          </div>
+          <div class="docs-arch-connector">&#8595; Iceberg tables stored on MinIO</div>
+          <div class="docs-arch-row">
+            <div class="docs-arch-box ab-iceberg">
+              <span class="ab-label">Iceberg format</span>
+              <span class="ab-name">Apache Iceberg 1.5</span>
+              <span class="ab-port">Parquet files in s3a://iceberg-warehouse/</span>
+            </div>
+            <div class="docs-arch-box ab-nessie">
+              <span class="ab-label">Glue Catalog &rarr;</span>
+              <span class="ab-name">Project Nessie</span>
+              <span class="ab-port">:19120 REST + UI</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>AWS service to local equivalent mapping</h2></div>
+      <div class="docs-card-bd" style="padding:0">
+        <table class="docs-svc-table">
+          <thead><tr><th>AWS Service</th><th>Local Equivalent</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td class="svc-name">Amazon S3</td><td>MinIO</td><td>Full S3A filesystem support for Spark + Glue Iceberg writes; faster than LocalStack S3</td></tr>
+            <tr><td class="svc-name">AWS Glue</td><td>AWS Glue Docker (glue4_image_01)</td><td>Official AWS image — identical runtime, JARs, and Glue DynamicFrame API</td></tr>
+            <tr><td class="svc-name">Amazon EMR</td><td>Apache Spark (bitnami/spark:3.5)</td><td>EMR runs Spark under the hood; same PySpark APIs and Iceberg runtime JARs</td></tr>
+            <tr><td class="svc-name">AWS Lambda</td><td>LocalStack CE + AWS SAM CLI</td><td>LocalStack for integration testing; SAM CLI for hot-reload iteration</td></tr>
+            <tr><td class="svc-name">Amazon Kinesis</td><td>LocalStack CE</td><td>Full Kinesis Data Streams API support in LocalStack Community Edition</td></tr>
+            <tr><td class="svc-name">Glue Data Catalog</td><td>Project Nessie</td><td>Git-like versioning, REST catalog API, Iceberg REST spec — fully replaces Glue catalog</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Integration with NextGenDataHive API</h2></div>
+      <div class="docs-card-bd">
+        <p>No code changes are needed in the existing codebase. <code>core/connector_runtime.py</code> already injects <code>AWS_*</code> env vars into ETL runtime. Load <code>.env.playground</code> before starting the API to redirect all AWS calls to LocalStack and MinIO.</p>
+        <p><code>core/validators/aws.py</code> calls <code>sts.get_caller_identity()</code> — LocalStack supports STS so validation passes with the fake <code>test / test</code> credentials.</p>
+        <div class="docs-code-label">Source the playground env before starting the API</div>
+        <pre class="docs-code">cd infra/playground
+export $(grep -v '^#' .env.playground | xargs)
+cd ../..
+python -m api</pre>
+      </div>
+    </div>
+
+  </div><!-- /overview -->
+
+  <!-- ── Tab: Quick Start ──────────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabQuickstart" data-docs-section="quickstart">
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Prerequisites</h2></div>
+      <div class="docs-card-bd">
+        <div class="docs-prereq-grid">
+          <div class="docs-prereq-item">
+            <div class="tool">Docker Desktop</div>
+            <div class="install">brew install --cask docker</div>
+            <div class="purpose">Runs all playground containers</div>
+          </div>
+          <div class="docs-prereq-item">
+            <div class="tool">AWS CLI v2</div>
+            <div class="install">brew install awscli</div>
+            <div class="purpose">Talk to LocalStack (Kinesis, Lambda, SQS)</div>
+          </div>
+          <div class="docs-prereq-item">
+            <div class="tool">AWS SAM CLI</div>
+            <div class="install">brew install aws-sam-cli</div>
+            <div class="purpose">Lambda hot-reload &amp; local HTTP API</div>
+          </div>
+          <div class="docs-prereq-item">
+            <div class="tool">Python 3.10+</div>
+            <div class="install">brew install python</div>
+            <div class="purpose">Run DataHive API with playground env</div>
+          </div>
+        </div>
+        <p style="margin-top:12px;font-size:13px;color:#8a93a3;">Recommended: allocate at least <strong>6 GB RAM</strong> and <strong>30 GB disk</strong> to Docker Desktop (Glue image alone is ~8 GB).</p>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Start the playground</h2></div>
+      <div class="docs-card-bd">
+        <div class="docs-steps">
+          <div class="docs-step">
+            <div class="docs-step-num">1</div>
+            <div class="docs-step-body">
+              <strong>Navigate to the playground directory</strong>
+              <pre class="docs-code">cd infra/playground</pre>
+            </div>
+          </div>
+          <div class="docs-step">
+            <div class="docs-step-num">2</div>
+            <div class="docs-step-body">
+              <strong>Start all services (first run pulls images — ~10–15 min)</strong>
+              <pre class="docs-code">docker compose --env-file .env.playground up -d</pre>
+            </div>
+          </div>
+          <div class="docs-step">
+            <div class="docs-step-num">3</div>
+            <div class="docs-step-body">
+              <strong>Watch startup and wait for all services to be healthy</strong>
+              <pre class="docs-code">docker compose logs -f
+docker compose ps</pre>
+            </div>
+          </div>
+          <div class="docs-step">
+            <div class="docs-step-num">4</div>
+            <div class="docs-step-body">
+              <strong>Verify MinIO buckets were created</strong>
+              <p>Open <a href="http://localhost:9001" target="_blank" rel="noopener">http://localhost:9001</a> → login <code>minioadmin / minioadmin</code> → confirm buckets: <code>iceberg-warehouse</code>, <code>raw-landing</code>, <code>processed</code>, <code>checkpoints</code>.</p>
+            </div>
+          </div>
+          <div class="docs-step">
+            <div class="docs-step-num">5</div>
+            <div class="docs-step-body">
+              <strong>Run the sample Glue job (creates Iceberg tables)</strong>
+              <pre class="docs-code">docker exec playground-glue \
+  python /home/glue_user/workspace/jobs/sample_glue_iceberg.py</pre>
+            </div>
+          </div>
+          <div class="docs-step">
+            <div class="docs-step-num">6</div>
+            <div class="docs-step-body">
+              <strong>Browse the Iceberg catalog in Nessie UI</strong>
+              <p>Open <a href="http://localhost:19120" target="_blank" rel="noopener">http://localhost:19120</a> to see the tables created by the Glue job under <code>main / datahive</code>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Stop &amp; reset</h2></div>
+      <div class="docs-card-bd">
+        <div class="docs-code-label">Stop containers (keep data)</div>
+        <pre class="docs-code">docker compose --env-file .env.playground down</pre>
+        <div class="docs-code-label">Full reset — wipes all Iceberg tables, buckets, streams</div>
+        <pre class="docs-code">docker compose --env-file .env.playground down -v</pre>
+        <div class="docs-code-label">Scale Spark workers (multi-node EMR simulation)</div>
+        <pre class="docs-code">docker compose --env-file .env.playground up --scale spark-worker=3 -d</pre>
+      </div>
+    </div>
+
+  </div><!-- /quickstart -->
+
+  <!-- ── Tab: Services ─────────────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabServices" data-docs-section="services">
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Service map</h2></div>
+      <div class="docs-card-bd" style="padding:0">
+        <table class="docs-svc-table">
+          <thead><tr><th>Service</th><th>URL</th><th>Credentials</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="svc-name">MinIO API (S3)</td>
+              <td class="svc-url"><a href="http://localhost:9000" target="_blank" rel="noopener">localhost:9000</a></td>
+              <td class="svc-cred">minioadmin / minioadmin</td>
+              <td>S3-compatible object store; Iceberg file storage</td>
+            </tr>
+            <tr>
+              <td class="svc-name">MinIO Console</td>
+              <td class="svc-url"><a href="http://localhost:9001" target="_blank" rel="noopener">localhost:9001</a></td>
+              <td class="svc-cred">minioadmin / minioadmin</td>
+              <td>Web UI to browse buckets, upload files, inspect Parquet layout</td>
+            </tr>
+            <tr>
+              <td class="svc-name">LocalStack</td>
+              <td class="svc-url"><a href="http://localhost:4566" target="_blank" rel="noopener">localhost:4566</a></td>
+              <td class="svc-cred">test / test</td>
+              <td>Lambda, Kinesis, SQS, SNS, IAM, STS</td>
+            </tr>
+            <tr>
+              <td class="svc-name">Project Nessie</td>
+              <td class="svc-url"><a href="http://localhost:19120" target="_blank" rel="noopener">localhost:19120</a></td>
+              <td class="svc-cred">none (open)</td>
+              <td>Iceberg REST catalog; Git-like branch + tag versioning</td>
+            </tr>
+            <tr>
+              <td class="svc-name">Spark Master UI</td>
+              <td class="svc-url"><a href="http://localhost:8080" target="_blank" rel="noopener">localhost:8080</a></td>
+              <td class="svc-cred">none</td>
+              <td>Monitor submitted Spark jobs and workers</td>
+            </tr>
+            <tr>
+              <td class="svc-name">Spark Cluster</td>
+              <td class="svc-url"><span style="font-family:Menlo,monospace;font-size:12px">spark://localhost:7077</span></td>
+              <td class="svc-cred">none</td>
+              <td>spark-submit endpoint (EMR simulation)</td>
+            </tr>
+            <tr>
+              <td class="svc-name">Glue JupyterLab</td>
+              <td class="svc-url"><a href="http://localhost:8888?token=datahive" target="_blank" rel="noopener">localhost:8888</a></td>
+              <td class="svc-cred">token: datahive</td>
+              <td>Interactive Glue 4.0 Spark notebooks</td>
+            </tr>
+            <tr>
+              <td class="svc-name">Spark Job UI</td>
+              <td class="svc-url"><a href="http://localhost:4040" target="_blank" rel="noopener">localhost:4040</a></td>
+              <td class="svc-cred">none</td>
+              <td>Live DAG + stages for the active Spark job</td>
+            </tr>
+            <tr>
+              <td class="svc-name">SAM API (optional)</td>
+              <td class="svc-url"><span style="font-family:Menlo,monospace;font-size:12px">localhost:3001</span></td>
+              <td class="svc-cred">none</td>
+              <td>Lambda HTTP endpoint via <code>sam local start-api</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Pre-created resources</h2><span class="docs-badge">Auto-init</span></div>
+      <div class="docs-card-bd">
+        <div class="docs-code-label">MinIO buckets (created by minio/init-minio.sh)</div>
+        <pre class="docs-code">iceberg-warehouse/   ← Iceberg table data &amp; metadata (Nessie warehouse)
+  datahive/          ← default namespace
+
+raw-landing/         ← ingest zone
+  events/            ← sample JSON event payloads
+  products/          ← products_2026_08_01.csv
+  orders/            ← orders_2026_08_01.csv
+
+processed/           ← output from Glue / Spark jobs
+  catalogued/        ← S3 event handler output
+
+checkpoints/         ← Spark Structured Streaming checkpoints</pre>
+
+        <div class="docs-code-label">LocalStack resources (created by localstack/init-aws.sh)</div>
+        <pre class="docs-code">Kinesis streams:  datahive-events (1 shard)
+                  datahive-raw-ingest (2 shards)
+                  datahive-processed (1 shard)
+
+SQS queues:       datahive-dlq
+                  datahive-jobs
+                  datahive-ordered.fifo
+
+SNS topics:       datahive-alerts
+                  datahive-pipeline-events  ← subscribed to datahive-jobs
+
+Lambda:           datahive-echo  ← triggered by datahive-events stream</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Key env vars (.env.playground)</h2></div>
+      <div class="docs-card-bd">
+        <pre class="docs-code"><span class="cm"># Fake AWS credentials (LocalStack accepts these)</span>
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+AWS_DEFAULT_REGION=us-east-1
+
+<span class="cm"># boto3 endpoint overrides — redirect to local services</span>
+AWS_ENDPOINT_URL=http://localhost:4566       <span class="cm"># Lambda, Kinesis, SQS, SNS</span>
+AWS_S3_ENDPOINT_URL=http://localhost:9000    <span class="cm"># MinIO (S3-compatible)</span>
+
+<span class="cm"># MinIO</span>
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
+
+<span class="cm"># Nessie catalog URI</span>
+NESSIE_URI=http://localhost:19120/api/v2
+
+<span class="cm"># JupyterLab token</span>
+JUPYTER_TOKEN=datahive</pre>
+      </div>
+    </div>
+
+  </div><!-- /services -->
+
+  <!-- ── Tab: Workflows ────────────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabWorkflows" data-docs-section="workflows">
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>Glue job development</h2>
+        <span class="docs-badge">Glue 4.0</span>
+      </div>
+      <div class="docs-card-bd">
+        <p>Write PySpark ETL scripts in <code>infra/playground/glue/jobs/</code>. The directory is mounted live into the container — no rebuild needed.</p>
+        <div class="docs-code-label">Run the sample Glue job (reads CSVs → writes 3 Iceberg tables)</div>
+        <pre class="docs-code">docker exec playground-glue \
+  python /home/glue_user/workspace/jobs/sample_glue_iceberg.py</pre>
+        <div class="docs-code-label">Open JupyterLab for interactive development</div>
+        <pre class="docs-code">open "http://localhost:8888?token=datahive"
+<span class="cm"># Notebook: notebooks/glue_iceberg_demo.ipynb</span></pre>
+        <div class="docs-code-label">Install extra packages inside the running container</div>
+        <pre class="docs-code">docker exec playground-glue \
+  pip install -r /home/glue_user/workspace/requirements.txt</pre>
+        <div class="docs-code-label">Open a PySpark shell inside the Glue container</div>
+        <pre class="docs-code">docker exec -it playground-glue pyspark</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>EMR / Spark job development</h2>
+        <span class="docs-badge">Spark 3.5</span>
+      </div>
+      <div class="docs-card-bd">
+        <p>Submit Spark applications to the local cluster. Add scripts to <code>infra/playground/spark/apps/</code> — they are mounted at <code>/opt/bitnami/spark/apps/</code>.</p>
+        <div class="docs-code-label">Submit the sample EMR Spark app (time travel, MERGE, branching)</div>
+        <pre class="docs-code">docker exec playground-spark-master \
+  spark-submit \
+    --master spark://spark-master:7077 \
+    --deploy-mode client \
+    /opt/bitnami/spark/apps/sample_emr_spark.py</pre>
+        <div class="docs-code-label">Submit from host machine (spark-submit on PATH)</div>
+        <pre class="docs-code">spark-submit \
+  --master spark://localhost:7077 \
+  --conf spark.sql.catalog.nessie.uri=http://localhost:19120/api/v2 \
+  --conf spark.hadoop.fs.s3a.endpoint=http://localhost:9000 \
+  infra/playground/spark/apps/sample_emr_spark.py</pre>
+        <div class="docs-code-label">Open Spark SQL shell inside the cluster</div>
+        <pre class="docs-code">docker exec -it playground-spark-master \
+  spark-sql --master spark://spark-master:7077</pre>
+        <div class="docs-code-label">Monitor jobs in the Spark UI</div>
+        <pre class="docs-code">open http://localhost:8080   <span class="cm"># Spark Master — workers and apps</span>
+open http://localhost:4040   <span class="cm"># Active job DAG + stages</span></pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>Lambda development</h2>
+        <span class="docs-badge">SAM CLI</span>
+      </div>
+      <div class="docs-card-bd">
+        <p>Use <strong>SAM CLI</strong> for hot-reload iteration and <strong>LocalStack</strong> for integration tests.</p>
+        <div class="docs-code-label">Build Lambda functions</div>
+        <pre class="docs-code">cd infra/playground/sam
+sam build</pre>
+        <div class="docs-code-label">Invoke Kinesis consumer with a test event</div>
+        <pre class="docs-code">sam local invoke KinesisConsumerFunction \
+  --event events/kinesis_event.json \
+  --env-vars env.json</pre>
+        <div class="docs-code-label">Invoke S3 event handler with a test event</div>
+        <pre class="docs-code">sam local invoke S3EventHandlerFunction \
+  --event events/s3_event.json \
+  --env-vars env.json</pre>
+        <div class="docs-code-label">Start HTTP API (hot-reload on code changes)</div>
+        <pre class="docs-code">sam local start-api --env-vars env.json --port 3001
+
+<span class="cm"># Test via HTTP POST</span>
+curl -X POST http://localhost:3001/playground/process \
+  -H 'Content-Type: application/json' \
+  -d '{"bucket":"raw-landing","key":"products/products_2026_08_01.csv"}'</pre>
+        <div class="docs-code-label">Invoke the echo Lambda deployed in LocalStack</div>
+        <pre class="docs-code">aws --endpoint-url=http://localhost:4566 \
+    lambda invoke \
+    --function-name datahive-echo \
+    --payload '{"test":"hello"}' \
+    /tmp/out.json &amp;&amp; cat /tmp/out.json</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>Kinesis stream testing</h2>
+        <span class="docs-badge">LocalStack</span>
+      </div>
+      <div class="docs-card-bd">
+        <div class="docs-code-label">Put a record into datahive-events</div>
+        <pre class="docs-code">aws --endpoint-url=http://localhost:4566 \
+    kinesis put-record \
+    --stream-name datahive-events \
+    --partition-key "user-U101" \
+    --data '{"event_type":"purchase","user_id":"U101","amount":79.99}'</pre>
+        <div class="docs-code-label">List all streams</div>
+        <pre class="docs-code">aws --endpoint-url=http://localhost:4566 kinesis list-streams</pre>
+        <div class="docs-code-label">Read records from a shard manually</div>
+        <pre class="docs-code">SHARD_ITER=$(aws --endpoint-url=http://localhost:4566 \
+  kinesis get-shard-iterator \
+  --stream-name datahive-events \
+  --shard-id shardId-000000000000 \
+  --shard-iterator-type LATEST \
+  --query ShardIterator --output text)
+
+aws --endpoint-url=http://localhost:4566 \
+  kinesis get-records --shard-iterator "$SHARD_ITER"</pre>
+        <div class="docs-code-label">Watch the echo Lambda trigger fire</div>
+        <pre class="docs-code">docker compose logs -f localstack | grep datahive-echo</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>MinIO / S3 operations</h2>
+        <span class="docs-badge">MinIO</span>
+      </div>
+      <div class="docs-card-bd">
+        <div class="docs-code-label">Configure AWS CLI for MinIO</div>
+        <pre class="docs-code">aws configure set aws_access_key_id minioadmin
+aws configure set aws_secret_access_key minioadmin
+aws configure set default.region us-east-1</pre>
+        <div class="docs-code-label">Upload a file to raw-landing</div>
+        <pre class="docs-code">aws --endpoint-url=http://localhost:9000 \
+    s3 cp myfile.csv s3://raw-landing/products/myfile.csv</pre>
+        <div class="docs-code-label">List Iceberg table files</div>
+        <pre class="docs-code">aws --endpoint-url=http://localhost:9000 \
+    s3 ls s3://iceberg-warehouse/datahive/ --recursive</pre>
+      </div>
+    </div>
+
+  </div><!-- /workflows -->
+
+  <!-- ── Tab: Commands ─────────────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabCommands" data-docs-section="commands">
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Docker Compose cheat sheet</h2></div>
+      <div class="docs-card-bd">
+        <pre class="docs-code"><span class="cm"># Start all services</span>
+docker compose --env-file .env.playground up -d
+
+<span class="cm"># Stop (keep volumes)</span>
+docker compose --env-file .env.playground down
+
+<span class="cm"># Wipe everything</span>
+docker compose --env-file .env.playground down -v
+
+<span class="cm"># Scale Spark workers</span>
+docker compose up --scale spark-worker=3 -d
+
+<span class="cm"># Tail logs for one service</span>
+docker compose logs -f glue
+docker compose logs -f localstack
+docker compose logs -f nessie
+
+<span class="cm"># Health check all services</span>
+docker compose ps
+
+<span class="cm"># Restart a single service</span>
+docker compose --env-file .env.playground restart glue</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>LocalStack AWS CLI commands</h2></div>
+      <div class="docs-card-bd">
+        <pre class="docs-code"><span class="cm"># ── Kinesis ──</span>
+aws --endpoint-url=http://localhost:4566 kinesis list-streams
+aws --endpoint-url=http://localhost:4566 kinesis put-record \
+    --stream-name datahive-events --partition-key k1 \
+    --data '{"hello":"world"}'
+
+<span class="cm"># ── SQS ──</span>
+aws --endpoint-url=http://localhost:4566 sqs list-queues
+aws --endpoint-url=http://localhost:4566 sqs send-message \
+    --queue-url http://localhost:4566/000000000000/datahive-jobs \
+    --message-body '{"task":"reprocess"}'
+
+<span class="cm"># ── Lambda ──</span>
+aws --endpoint-url=http://localhost:4566 lambda list-functions
+aws --endpoint-url=http://localhost:4566 lambda invoke \
+    --function-name datahive-echo \
+    --payload '{"ping":1}' /tmp/out.json
+
+<span class="cm"># ── SNS ──</span>
+aws --endpoint-url=http://localhost:4566 sns list-topics
+aws --endpoint-url=http://localhost:4566 sns publish \
+    --topic-arn arn:aws:sns:us-east-1:000000000000:datahive-alerts \
+    --message "Pipeline complete"
+
+<span class="cm"># ── STS (validate LocalStack credentials) ──</span>
+aws --endpoint-url=http://localhost:4566 sts get-caller-identity</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Spark SQL quick reference</h2></div>
+      <div class="docs-card-bd">
+        <pre class="docs-code"><span class="cm">-- Open a Spark SQL shell</span>
+docker exec -it playground-spark-master \
+  spark-sql --master spark://spark-master:7077
+
+<span class="cm">-- List tables</span>
+SHOW TABLES IN nessie.datahive;
+
+<span class="cm">-- Query an Iceberg table</span>
+SELECT * FROM nessie.datahive.orders LIMIT 10;
+
+<span class="cm">-- Create a namespace and table</span>
+CREATE NAMESPACE IF NOT EXISTS nessie.myns;
+CREATE TABLE nessie.myns.events (
+    id BIGINT, event_type STRING, ts TIMESTAMP
+) USING iceberg PARTITIONED BY (days(ts));
+
+<span class="cm">-- MERGE INTO (UPSERT)</span>
+MERGE INTO nessie.datahive.products AS t
+USING updates AS s ON t.product_id = s.product_id
+WHEN MATCHED THEN UPDATE SET t.stock_quantity = s.stock_quantity
+WHEN NOT MATCHED THEN INSERT *;
+
+<span class="cm">-- Time travel</span>
+SELECT * FROM nessie.datahive.orders VERSION AS OF 12345;
+SELECT * FROM nessie.datahive.orders TIMESTAMP AS OF '2026-08-01';
+
+<span class="cm">-- Schema evolution</span>
+ALTER TABLE nessie.datahive.orders ADD COLUMN discount_pct DOUBLE;
+ALTER TABLE nessie.datahive.orders RENAME COLUMN old_name TO new_name;
+
+<span class="cm">-- Maintenance</span>
+CALL nessie.system.rewrite_data_files(table => 'datahive.orders');
+CALL nessie.system.expire_snapshots(
+    table => 'datahive.orders', older_than => TIMESTAMP '2026-08-01', retain_last => 3
+);</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Nessie REST API</h2></div>
+      <div class="docs-card-bd">
+        <pre class="docs-code"><span class="cm"># List branches</span>
+curl -s http://localhost:19120/api/v2/trees | python3 -m json.tool
+
+<span class="cm"># List tables on main</span>
+curl -s http://localhost:19120/api/v2/trees/main/entries | python3 -m json.tool
+
+<span class="cm"># Create a branch</span>
+curl -X POST http://localhost:19120/api/v2/trees \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"dev","type":"BRANCH","reference":{"type":"BRANCH","name":"main"}}'
+
+<span class="cm"># Create a tag</span>
+curl -X POST http://localhost:19120/api/v2/trees \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"v1.0","type":"TAG","reference":{"type":"BRANCH","name":"main"}}'</pre>
+      </div>
+    </div>
+
+  </div><!-- /commands -->
+
+  <!-- ── Tab: Iceberg & Nessie ──────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabIceberg" data-docs-section="iceberg">
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Apache Iceberg overview</h2></div>
+      <div class="docs-card-bd">
+        <p>Apache Iceberg is an open table format for huge analytic datasets. It adds ACID transactions, time travel, schema evolution, and partition evolution on top of Parquet files stored in object storage (MinIO in the playground).</p>
+        <p>In the playground, Iceberg tables live at <code>s3a://iceberg-warehouse/&lt;namespace&gt;/&lt;table&gt;/</code> and are catalogued by Project Nessie.</p>
+
+        <div class="docs-code-label">Iceberg table layout in MinIO</div>
+        <pre class="docs-code">iceberg-warehouse/
+  datahive/
+    products/
+      metadata/
+        v1.metadata.json         ← current table metadata
+        snap-123.avro            ← snapshot manifest list
+      data/
+        part-00000.parquet       ← data files (Snappy compressed)
+    orders/
+      metadata/  ...
+      data/
+        order_status=completed/  ← partition directory
+          part-00000.parquet</pre>
+
+        <div class="docs-code-label">Spark configuration for Iceberg + Nessie</div>
+        <pre class="docs-code">spark.sql.extensions = org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+spark.sql.catalog.nessie = org.apache.iceberg.spark.SparkCatalog
+spark.sql.catalog.nessie.catalog-impl = org.apache.iceberg.nessie.NessieCatalog
+spark.sql.catalog.nessie.uri = http://nessie:19120/api/v2   <span class="cm"># inside Docker</span>
+spark.sql.catalog.nessie.warehouse = s3a://iceberg-warehouse/
+spark.sql.catalog.nessie.io-impl = org.apache.iceberg.aws.s3.S3FileIO
+spark.sql.catalog.nessie.s3.endpoint = http://minio:9000
+spark.sql.catalog.nessie.s3.path-style-access = true</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Iceberg features in the playground</h2></div>
+      <div class="docs-card-bd">
+        <div class="docs-code-label">Time travel — read a previous version of a table</div>
+        <pre class="docs-code"><span class="cm">-- By snapshot ID</span>
+SELECT * FROM nessie.datahive.orders VERSION AS OF 1234567890;
+
+<span class="cm">-- By timestamp</span>
+SELECT * FROM nessie.datahive.orders
+TIMESTAMP AS OF '2026-08-01 00:00:00';
+
+<span class="cm">-- View all snapshots</span>
+SELECT snapshot_id, committed_at, operation
+FROM nessie.datahive.orders.snapshots;</pre>
+
+        <div class="docs-code-label">Schema evolution — no data rewrite</div>
+        <pre class="docs-code"><span class="cm">-- Add columns (existing rows return NULL)</span>
+ALTER TABLE nessie.datahive.orders ADD COLUMNS (
+    discount_code STRING,
+    is_gift BOOLEAN
+);
+
+<span class="cm">-- Rename a column</span>
+ALTER TABLE nessie.datahive.orders RENAME COLUMN unit_price TO price;
+
+<span class="cm">-- Drop a column</span>
+ALTER TABLE nessie.datahive.orders DROP COLUMN is_flagged;</pre>
+
+        <div class="docs-code-label">Partition evolution</div>
+        <pre class="docs-code"><span class="cm">-- Change partitioning without rewriting existing data</span>
+ALTER TABLE nessie.datahive.orders
+REPLACE PARTITION FIELD order_status WITH days(order_date);</pre>
+
+        <div class="docs-code-label">Table maintenance</div>
+        <pre class="docs-code"><span class="cm">-- Compact small files into larger ones</span>
+CALL nessie.system.rewrite_data_files(table => 'datahive.orders');
+
+<span class="cm">-- Remove orphan files left by failed jobs</span>
+CALL nessie.system.remove_orphan_files(table => 'datahive.orders');
+
+<span class="cm">-- Expire old snapshots</span>
+CALL nessie.system.expire_snapshots(
+    table => 'datahive.orders',
+    older_than => TIMESTAMP '2026-08-01',
+    retain_last => 3
+);</pre>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd">
+        <h2>Project Nessie — Git for data</h2>
+        <span class="docs-badge">Catalog</span>
+      </div>
+      <div class="docs-card-bd">
+        <p>Nessie gives you Git-like branch and tag semantics for Iceberg tables. Create an experimental branch, write tables there, and the main branch is completely unaffected until you merge.</p>
+        <div class="docs-code-label">Branch workflow in Spark SQL</div>
+        <pre class="docs-code"><span class="cm">-- Create a feature branch</span>
+CREATE BRANCH dev IN nessie;
+
+<span class="cm">-- Switch to the branch</span>
+USE REFERENCE dev IN nessie;
+
+<span class="cm">-- Write a table (only visible on dev, not main)</span>
+CREATE TABLE nessie.datahive.experiment (...) USING iceberg;
+INSERT INTO nessie.datahive.experiment VALUES (...);
+
+<span class="cm">-- Switch back — experiment table is absent on main</span>
+USE REFERENCE main IN nessie;
+SHOW TABLES IN nessie.datahive;  <span class="cm">-- experiment not listed</span>
+
+<span class="cm">-- Merge dev into main when ready</span>
+CALL nessie.system.merge('dev', 'main');
+
+<span class="cm">-- Create an immutable tag (snapshot for auditing)</span>
+CREATE TAG v1.0 IN nessie AS OF main;</pre>
+      </div>
+    </div>
+
+  </div><!-- /iceberg -->
+
+  <!-- ── Tab: Limitations ──────────────────────────────────────────────────── -->
+  <div class="docs-section hidden" id="docsTabLimits" data-docs-section="limits">
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>What is not emulated</h2></div>
+      <div class="docs-card-bd" style="padding:0">
+        <table class="docs-limit-table">
+          <thead><tr><th>AWS Feature</th><th>Status</th><th>Playground Alternative</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="lt-feature">Glue Data Catalog (schema registry)</td>
+              <td><span class="docs-limit-tag workaround">Replaced</span></td>
+              <td class="lt-alt">Project Nessie + Iceberg REST catalog fully replaces it — no emulation needed</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">Glue Crawlers</td>
+              <td><span class="docs-limit-tag unsupported">Not supported</span></td>
+              <td class="lt-alt">Define schemas manually using Iceberg DDL (<code>CREATE TABLE … USING iceberg</code>)</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">Glue Studio visual ETL</td>
+              <td><span class="docs-limit-tag unsupported">Not available</span></td>
+              <td class="lt-alt">Write PySpark scripts in <code>glue/jobs/</code> or use the Glue JupyterLab notebook</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">EMR cluster management API (<code>emr.create_cluster</code>)</td>
+              <td><span class="docs-limit-tag unsupported">LocalStack Pro only</span></td>
+              <td class="lt-alt">Use <code>spark-submit --master spark://localhost:7077</code> directly</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">EMR Serverless</td>
+              <td><span class="docs-limit-tag unsupported">Not supported</span></td>
+              <td class="lt-alt">Use <code>spark-submit --master local[*]</code> for single-node local mode</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">Kinesis Data Firehose</td>
+              <td><span class="docs-limit-tag unsupported">Not in CE</span></td>
+              <td class="lt-alt">Kinesis → Lambda (datahive-echo) → MinIO write pattern replaces Firehose delivery</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">Kinesis Data Analytics (Flink)</td>
+              <td><span class="docs-limit-tag unsupported">Not supported</span></td>
+              <td class="lt-alt">Use Spark Structured Streaming with <code>trigger(once=True)</code> in notebooks</td>
+            </tr>
+            <tr>
+              <td class="lt-feature">Lambda@Edge / CloudFront</td>
+              <td><span class="docs-limit-tag unsupported">Not supported</span></td>
+              <td class="lt-alt">Not applicable for data pipeline workloads</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="docs-card">
+      <div class="docs-card-hd"><h2>Known quirks</h2></div>
+      <div class="docs-card-bd">
+        <p><strong>Spark JAR downloads on first submit.</strong> The <code>spark.jars.packages</code> setting in <code>spark-defaults.conf</code> triggers Maven downloads on the first job submission (~300 MB). Subsequent runs use the local cache.</p>
+        <p><strong>Glue image size.</strong> <code>public.ecr.aws/glue/aws-glue-libs:glue4_image_01</code> is approximately 8 GB. Ensure Docker Desktop has at least 20 GB disk space allocated.</p>
+        <p><strong>MinIO vs LocalStack S3.</strong> The playground intentionally uses MinIO for object storage instead of LocalStack S3. MinIO has full S3A filesystem support required by the Hadoop connector for Iceberg writes. LocalStack S3 is only used for Lambda deployment packages.</p>
+        <p><strong>Nessie catalog inside Docker.</strong> Spark and Glue containers connect to Nessie at <code>http://nessie:19120</code> (Docker hostname). When running <code>spark-submit</code> from the host machine, override to <code>http://localhost:19120</code>.</p>
+      </div>
+    </div>
+
+  </div><!-- /limits -->
+
+</div><!-- #view-docs -->
 
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 <script src="js/http.js"></script>

@@ -2086,6 +2086,8 @@ document.querySelectorAll("nav.rail a[data-view]").forEach((a) => {
     if (reportingView) reportingView.classList.toggle("hidden", view !== "reporting");
     const askView = $("#view-ask");
     if (askView) askView.classList.toggle("hidden", view !== "ask");
+    const docsView = $("#view-docs");
+    if (docsView) docsView.classList.toggle("hidden", view !== "docs");
     if (view === "assets") initAssetsView();
     if (view === "ask" && typeof DataHiveAsk !== "undefined") DataHiveAsk.init();
     if (view === "insights" && typeof DataHiveSqlExplorer !== "undefined") {
@@ -2099,6 +2101,22 @@ document.querySelectorAll("nav.rail a[data-view]").forEach((a) => {
       DataHiveReporting.init();
     }
   });
+});
+
+// ── Docs tab switching ────────────────────────────────────────────────────────
+function setDocsTab(tab) {
+  document.querySelectorAll(".docs-tab").forEach((btn) => {
+    const on = btn.dataset.docsTab === tab;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll("[data-docs-section]").forEach((sec) => {
+    sec.classList.toggle("hidden", sec.dataset.docsSection !== tab);
+  });
+}
+
+document.querySelectorAll(".docs-tab").forEach((btn) => {
+  btn.addEventListener("click", () => setDocsTab(btn.dataset.docsTab));
 });
 
 let assetSearchTimer = null;
