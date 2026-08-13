@@ -1,0 +1,17 @@
+# Extra Python packages installed into the Glue Docker container.
+# The base image (glue4_image_01) already includes:
+#   pyspark 3.3, boto3, pyarrow, pandas, numpy, apache-iceberg 1.2
+# Add only what the base image does NOT include.
+
+# Nessie Python client (catalog management, branch operations)
+pynessie>=0.67.0
+
+# S3FS for direct MinIO access via Python (not Spark)
+s3fs>=2024.1.0
+boto3>=1.35.0
+
+# Data quality and profiling
+great-expectations>=0.18.0
+
+# Useful for working with Iceberg table metadata directly
+pyiceberg>=0.6.0

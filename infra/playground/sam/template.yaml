@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAM template for NextGenDataHive local Lambda playground
+#
+# Usage (requires aws-sam-cli: brew install aws-sam-cli):
+#
+#   Build:
+#     cd infra/playground/sam
+#     sam build
+#
+#   Local invoke (single shot):
+#     sam local invoke KinesisConsumerFunction \
+#       --event events/kinesis_event.json \
+#       --env-vars env.json
+#
+#   Hot-reload API endpoint:
+#     sam local start-api --env-vars env.json --port 3001
+#
+#   Integration test against LocalStack:
+#     AWS_ENDPOINT_URL=http://localhost:4566 \
+#     sam deploy --guided \
+#       --config-env localstack \
+#       --parameter-overrides Env=playground
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+Description: >
+  DataHive local Lambda playground — Kinesis consumer and S3 event handler
+  running against LocalStack CE + MinIO.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Handler: handler.lambda_handler
+    Timeout: 30
+    MemorySize: 256
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        ENV: !Ref Env
+        AWS_ENDPOINT_URL: !Ref LocalStackEndpoint
+        MINIO_ENDPOINT: !Ref MinIOEndpoint
+        MINIO_ACCESS_KEY: !Ref MinIOAccessKey
+        MINIO_SECRET_KEY: !Ref MinIOSecretKey
+        PROCESSED_BUCKET: !Ref ProcessedBucket
+
+Parameters:
+  Env:
+    Type: String
+    Default: playground
+    AllowedValues: [playground, dev, staging, prod]
+
+  LocalStackEndpoint:
+    Type: String
+    Default: "http://localhost:4566"
+    Description: LocalStack endpoint (use http://localstack:4566 inside Docker)
+
+  MinIOEndpoint:
+    Type: String
+    Default: "http://localhost:9000"
+    Description: MinIO S3 endpoint (use http://minio:9000 inside Docker)
+
+  MinIOAccessKey:
+    Type: String
+    Default: minioadmin
+
+  MinIOSecretKey:
+    Type: String
+    Default: minioadmin
+    NoEcho: true
+
+  KinesisStreamName:
+    Type: String
+    Default: datahive-events
+
+  ProcessedBucket:
+    Type: String
+    Default: processed
+
+  DLQName:
+    Type: String
+    Default: datahive-dlq
+
+Resources:
+
+  # ── Kinesis Consumer Lambda ──────────────────────────────────────────────────
+  # Triggered by the datahive-events Kinesis stream.
+  # Decodes records, enriches them, and writes Parquet files to MinIO processed/.
+  KinesisConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: datahive-kinesis-consumer
+      CodeUri: functions/kinesis_consumer/
+      Description: "Consumes datahive-events Kinesis stream and writes to MinIO"
+      Environment:
+        Variables:
+          KINESIS_STREAM_NAME: !Ref KinesisStreamName
+          OUTPUT_PREFIX: kinesis-output
+      Policies:
+        - KinesisStreamReadPolicy:
+            StreamName: !Ref KinesisStreamName
+        - S3WritePolicy:
+            BucketName: !Ref ProcessedBucket
+
+  # ── S3 Event Handler Lambda ──────────────────────────────────────────────────
+  # Triggered by object uploads to raw-landing/ bucket in LocalStack.
+  # Validates, catalogues and forwards files to processed/.
+  S3EventHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: datahive-s3-event-handler
+      CodeUri: functions/s3_event_handler/
+      Description: "Handles S3 PutObject events from raw-landing bucket"
+      Environment:
+        Variables:
+          SOURCE_BUCKET: raw-landing
+          DESTINATION_PREFIX: catalogued
+      Policies:
+        - S3ReadPolicy:
+            BucketName: raw-landing
+        - S3WritePolicy:
+            BucketName: !Ref ProcessedBucket
+
+  # ── HTTP API for local testing ────────────────────────────────────────────────
+  # sam local start-api --env-vars env.json --port 3001
+  DataHiveApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Env
+
+  # Expose the S3 handler via HTTP (for manual testing without real S3 events)
+  S3HandlerApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: datahive-s3-handler-api
+      CodeUri: functions/s3_event_handler/
+      Description: "HTTP-triggered version of the S3 event handler for local testing"
+      Events:
+        ApiEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DataHiveApi
+            Path: /process
+            Method: POST
+      Policies:
+        - S3ReadPolicy:
+            BucketName: raw-landing
+        - S3WritePolicy:
+            BucketName: !Ref ProcessedBucket
+
+Outputs:
+  KinesisConsumerArn:
+    Description: "Kinesis consumer Lambda ARN"
+    Value: !GetAtt KinesisConsumerFunction.Arn
+
+  S3EventHandlerArn:
+    Description: "S3 event handler Lambda ARN"
+    Value: !GetAtt S3EventHandlerFunction.Arn
+
+  ApiUrl:
+    Description: "Local SAM API endpoint"
+    Value: !Sub "http://localhost:3001/${Env}"

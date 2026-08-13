@@ -1,0 +1,236 @@
+version: "3.9"
+
+# NextGenDataHive — Local AWS Playground
+# Services: MinIO (S3), LocalStack (Lambda/Kinesis/SQS/SNS), Project Nessie (Iceberg catalog),
+#           Apache Spark cluster (EMR simulation), AWS Glue Docker (Glue 4 + JupyterLab)
+#
+# Start:   docker compose --env-file .env.playground up -d
+# Stop:    docker compose --env-file .env.playground down
+# Logs:    docker compose logs -f <service>
+# Scale:   docker compose up --scale spark-worker=3 -d
+
+networks:
+  playground:
+    driver: bridge
+
+volumes:
+  minio-data:
+  localstack-data:
+  nessie-data:
+  spark-logs:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. MinIO  —  S3-compatible object storage
+#    Console:  http://localhost:9001  (minioadmin / minioadmin)
+#    API:      http://localhost:9000
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: playground-minio
+    networks:
+      - playground
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # One-shot container that creates the required buckets after MinIO is healthy
+  minio-init:
+    image: minio/mc:latest
+    container_name: playground-minio-init
+    networks:
+      - playground
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env.playground
+    volumes:
+      - ./minio/init-minio.sh:/init-minio.sh:ro
+    entrypoint: ["/bin/sh", "/init-minio.sh"]
+    restart: "no"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. LocalStack CE  —  Lambda, Kinesis, SQS, SNS, IAM, STS
+#    Endpoint:  http://localhost:4566
+# ─────────────────────────────────────────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:latest
+    container_name: playground-localstack
+    networks:
+      - playground
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "4510-4559:4510-4559"  # Lambda RIE port range
+    environment:
+      SERVICES: lambda,kinesis,sqs,sns,iam,sts,s3
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      # Persist state across restarts
+      PERSISTENCE: 1
+      DATA_DIR: /var/lib/localstack/data
+      # Allow Lambda containers to reach back into LocalStack
+      LAMBDA_DOCKER_NETWORK: playground_playground
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Project Nessie  —  Iceberg REST catalog (Git-for-data)
+#    REST API:  http://localhost:19120/api/v2
+#    UI:        http://localhost:19120
+#    Iceberg:   http://localhost:19120/iceberg
+# ─────────────────────────────────────────────────────────────────────────────
+  nessie:
+    image: ghcr.io/projectnessie/nessie:latest
+    container_name: playground-nessie
+    networks:
+      - playground
+    ports:
+      - "${NESSIE_PORT:-19120}:19120"
+    environment:
+      QUARKUS_PROFILE: prod
+      NESSIE_VERSION_STORE_TYPE: IN_MEMORY
+      # For persistence across restarts, switch to ROCKSDB and mount a volume:
+      # NESSIE_VERSION_STORE_TYPE: ROCKSDB
+      # QUARKUS_ROCKSDB_DATABASE_PATH: /nessie/data
+    volumes:
+      - nessie-data:/nessie/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19120/api/v2/config"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4a. Spark Master  —  EMR simulation (Apache Spark 3.5 cluster mode)
+#     UI:      http://localhost:8080
+#     Cluster: spark://localhost:7077
+# ─────────────────────────────────────────────────────────────────────────────
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: playground-spark-master
+    networks:
+      - playground
+    ports:
+      - "${SPARK_MASTER_UI_PORT:-8080}:8080"
+      - "${SPARK_MASTER_PORT:-7077}:7077"
+    environment:
+      SPARK_MODE: master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ./spark/apps:/opt/bitnami/spark/apps:ro
+      - spark-logs:/opt/bitnami/spark/logs
+    depends_on:
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. Spark Worker  —  scale with: docker compose up --scale spark-worker=3 -d
+# ─────────────────────────────────────────────────────────────────────────────
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: playground-spark-worker
+    networks:
+      - playground
+    ports:
+      - "8081"
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - ./spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf:ro
+      - ./spark/apps:/opt/bitnami/spark/apps:ro
+      - spark-logs:/opt/bitnami/spark/logs
+    depends_on:
+      - spark-master
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. AWS Glue Docker (Glue 4.0 + Spark 3.3 + JupyterLab)
+#    JupyterLab:  http://localhost:8888  (token: datahive)
+#    Glue job:    docker exec playground-glue python /home/glue_user/workspace/jobs/<job>.py
+# ─────────────────────────────────────────────────────────────────────────────
+  glue:
+    image: public.ecr.aws/glue/aws-glue-libs:glue4_image_01
+    container_name: playground-glue
+    networks:
+      - playground
+    ports:
+      - "${GLUE_JUPYTER_PORT:-8888}:8888"
+      - "4040:4040"  # Spark UI for running Glue jobs
+    environment:
+      # Point Glue's boto3 at LocalStack; S3 i/o goes via MinIO via spark-defaults
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://localstack:4566
+      # MinIO S3 endpoint for the Hadoop S3A connector
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Nessie catalog
+      NESSIE_URI: http://nessie:19120/api/v2
+      ICEBERG_WAREHOUSE: s3a://iceberg-warehouse/
+      # JupyterLab token
+      JUPYTER_TOKEN: datahive
+      DISABLE_SSL: "true"
+    volumes:
+      - ./glue/jobs:/home/glue_user/workspace/jobs:rw
+      - ./glue/requirements.txt:/home/glue_user/workspace/requirements.txt:ro
+      - ./notebooks:/home/glue_user/workspace/notebooks:rw
+      - ./spark/spark-defaults.conf:/home/glue_user/spark/conf/spark-defaults.conf:ro
+    command: >
+      /home/glue_user/jupyter/jupyter_start.sh
+    depends_on:
+      minio:
+        condition: service_healthy
+      nessie:
+        condition: service_healthy
+    restart: unless-stopped

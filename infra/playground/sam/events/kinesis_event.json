@@ -1,0 +1,52 @@
+{
+  "Records": [
+    {
+      "kinesis": {
+        "kinesisSchemaVersion": "1.0",
+        "partitionKey": "user-U101",
+        "sequenceNumber": "49590338271490256608559692540925702759324208523137515522",
+        "data": "eyJldmVudF9pZCI6IkUwMDEiLCJldmVudF90eXBlIjoicGFnZV92aWV3IiwidXNlcl9pZCI6IlUxMDEiLCJzZXNzaW9uX2lkIjoiUzkwMDEiLCJwYWdlIjoiL2hvbWUiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTAxVDEwOjAwOjAxWiIsInByb3BlcnRpZXMiOnsiZGV2aWNlIjoibW9iaWxlIiwib3MiOiJpT1MifX0=",
+        "approximateArrivalTimestamp": 1754000401.0
+      },
+      "eventSource": "aws:kinesis",
+      "eventVersion": "1.0",
+      "eventID": "shardId-000000000000:49590338271490256608559692540925702759324208523137515522",
+      "eventName": "aws:kinesis:record",
+      "invokeIdentityArn": "arn:aws:iam::000000000000:role/datahive-lambda-role",
+      "awsRegion": "us-east-1",
+      "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/datahive-events"
+    },
+    {
+      "kinesis": {
+        "kinesisSchemaVersion": "1.0",
+        "partitionKey": "user-U102",
+        "sequenceNumber": "49590338271490256608559692540925702759324208523137515523",
+        "data": "eyJldmVudF9pZCI6IkUwMDIiLCJldmVudF90eXBlIjoicHJvZHVjdF92aWV3IiwidXNlcl9pZCI6IlUxMDIiLCJzZXNzaW9uX2lkIjoiUzkwMDIiLCJwYWdlIjoiL3Byb2R1Y3QvUDAwMSIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMDFUMTA6MDA6MDVaIiwicHJvcGVydGllcyI6eyJkZXZpY2UiOiJkZXNrdG9wIiwib3MiOiJtYWNPUyJ9fQ==",
+        "approximateArrivalTimestamp": 1754000405.0
+      },
+      "eventSource": "aws:kinesis",
+      "eventVersion": "1.0",
+      "eventID": "shardId-000000000000:49590338271490256608559692540925702759324208523137515523",
+      "eventName": "aws:kinesis:record",
+      "invokeIdentityArn": "arn:aws:iam::000000000000:role/datahive-lambda-role",
+      "awsRegion": "us-east-1",
+      "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/datahive-events"
+    },
+    {
+      "kinesis": {
+        "kinesisSchemaVersion": "1.0",
+        "partitionKey": "user-U101",
+        "sequenceNumber": "49590338271490256608559692540925702759324208523137515524",
+        "data": "eyJldmVudF9pZCI6IkUwMDQiLCJldmVudF90eXBlIjoicHVyY2hhc2UiLCJ1c2VyX2lkIjoiVTEwMSIsInNlc3Npb25faWQiOiJTOTAwMSIsInBhZ2UiOiIvY2hlY2tvdXQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA4LTAxVDEwOjAxOjAwWiIsInByb3BlcnRpZXMiOnsib3JkZXJfaWQiOiJPMTAwMSIsInRvdGFsIjo3OS45OX19",
+        "approximateArrivalTimestamp": 1754000460.0
+      },
+      "eventSource": "aws:kinesis",
+      "eventVersion": "1.0",
+      "eventID": "shardId-000000000000:49590338271490256608559692540925702759324208523137515524",
+      "eventName": "aws:kinesis:record",
+      "invokeIdentityArn": "arn:aws:iam::000000000000:role/datahive-lambda-role",
+      "awsRegion": "us-east-1",
+      "eventSourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/datahive-events"
+    }
+  ]
+}
