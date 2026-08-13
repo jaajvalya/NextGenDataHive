@@ -2119,6 +2119,15 @@ document.querySelectorAll(".docs-tab").forEach((btn) => {
   btn.addEventListener("click", () => setDocsTab(btn.dataset.docsTab));
 });
 
+// #view-docs is placed after </main> in the HTML to avoid a huge mid-file insert.
+// Move it inside main.body at page load so it participates in the flex layout
+// exactly like every other #view-* pane.
+(function relocateDocsView() {
+  const docsView = document.getElementById("view-docs");
+  const mainBody = document.querySelector("main.body");
+  if (docsView && mainBody) mainBody.appendChild(docsView);
+})();
+
 let assetSearchTimer = null;
 const assetSearchInput = $("#assetSearch");
 if (assetSearchInput) {

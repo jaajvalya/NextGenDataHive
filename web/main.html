@@ -31,7 +31,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="css/main.css" />
+<link rel="stylesheet" href="css/main.css?v=arena1" />
 <link rel="stylesheet" href="css/ask.css" />
 </head>
 <body>
@@ -314,6 +314,43 @@
           <p>Select source and destination, choose SQL / Python / PySpark, then generate a transformation script.</p>
         </div>
         <div class="acl-hero-mark" aria-hidden="true"></div>
+      </section>
+
+      <!-- DataHive ETL Arena playground launcher -->
+      <section class="arena-banner" aria-label="DataHive ETL Arena">
+        <div class="arena-left">
+          <div class="arena-badge">PLAYGROUND</div>
+          <h2 class="arena-title">DataHive ETL Arena</h2>
+          <p class="arena-desc">Local AWS sandbox — Glue 4.0, Apache Spark (EMR), Iceberg, Kinesis, and MinIO running in Docker. No AWS account required.</p>
+          <div class="arena-links">
+            <a class="arena-cta" href="http://localhost:8888" target="_blank" rel="noopener">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Open JupyterLab (Glue)
+            </a>
+            <div class="arena-services">
+              <a class="arena-svc" href="http://localhost:9001" target="_blank" rel="noopener" title="MinIO S3 Console">
+                <span class="arena-svc-dot" style="background:#e56c2f"></span>MinIO Console
+              </a>
+              <a class="arena-svc" href="http://localhost:8080" target="_blank" rel="noopener" title="Spark Master UI">
+                <span class="arena-svc-dot" style="background:#e25a1c"></span>Spark UI
+              </a>
+              <a class="arena-svc" href="http://localhost:19120" target="_blank" rel="noopener" title="Project Nessie — Iceberg catalog">
+                <span class="arena-svc-dot" style="background:#4a90d9"></span>Nessie
+              </a>
+              <a class="arena-svc" href="http://localhost:4566" target="_blank" rel="noopener" title="LocalStack — Lambda · Kinesis · SQS">
+                <span class="arena-svc-dot" style="background:#6b7cff"></span>LocalStack
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="arena-right" aria-hidden="true">
+          <div class="arena-icon-grid">
+            <span class="aig-item aig-glue">Glue</span>
+            <span class="aig-item aig-spark">Spark</span>
+            <span class="aig-item aig-iceberg">Iceberg</span>
+            <span class="aig-item aig-lambda">Lambda</span>
+          </div>
+        </div>
       </section>
 
       <section class="etl-card" aria-labelledby="etlFormTitle">
@@ -1950,6 +1987,6 @@ CREATE TAG v1.0 IN nessie AS OF main;</pre>
 <script src="js/ask.js?v=followup2"></script>
 <script src="js/reporting.js"></script>
 <script src="js/etl_runtime.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=docs1"></script>
 </body>
 </html>
